@@ -8,4 +8,4 @@ embedded systems.
 [Cyphal](https://opencyphal.org) is an open lightweight data bus standard designed for reliable intravehicular
 communication in aerospace and robotic applications via CAN bus, Ethernet, and other robust transports.
 
-**WORK IN PROGRESS, NOT READY FOR USE**
+[**WORK IN PROGRESS, NOT READY FOR USE**](https://forum.opencyphal.org/t/libserard-a-potential-alternative-to-libcanard-that-implements-uavcan-serial/1213)
