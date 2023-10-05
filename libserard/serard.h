@@ -36,10 +36,11 @@ extern "C" {
 /// form (e.g., error code 2 returned as -2). A non-negative return value represents success.
 /// API calls whose return type is not a signed integer cannot fail by contract.
 /// No other error states may occur in the library.
-/// By contract, a well-characterized application with a properly sized memory pool will never encounter errors.
+/// By contract, a well-characterized application with properly sized memory pools will never encounter errors.
 /// The error code 1 is not used because -1 is often used as a generic error code in 3rd-party code.
-#define SERARD_ERROR_INVALID_ARGUMENT 2
-#define SERARD_ERROR_OUT_OF_MEMORY 3
+#define SERARD_ERROR_ARGUMENT 2
+#define SERARD_ERROR_MEMORY 3
+#define SERARD_ERROR_ANONYMOUS 4
 
 /// Parameter ranges are inclusive; the lower bound is zero for all. See Cyphal/serial Specification for background.
 #define SERARD_SUBJECT_ID_MAX 8191U
@@ -58,16 +59,13 @@ extern "C" {
 #define SERARD_TRANSFER_DELIMITER 0
 
 // Forward declarations.
-typedef struct Serard            Serard;
-typedef struct SerardTreeNode    SerardTreeNode;
-typedef struct SerardTxQueueItem SerardTxQueueItem;
-typedef uint64_t                 SerardMicrosecond;
-typedef uint16_t                 SerardPortID;
-typedef uint16_t                 SerardNodeID;
-typedef uint64_t                 SerardTransferID;
+typedef uint64_t SerardMicrosecond;
+typedef uint16_t SerardPortID;
+typedef uint16_t SerardNodeID;
+typedef uint64_t SerardTransferID;
 
 /// Transfer priority level mnemonics per the recommendations given in the Cyphal Specification.
-typedef enum
+enum SerardPriority
 {
     SerardPriorityExceptional = 0,
     SerardPriorityImmediate   = 1,
@@ -77,32 +75,32 @@ typedef enum
     SerardPriorityLow         = 5,
     SerardPrioritySlow        = 6,
     SerardPriorityOptional    = 7,
-} SerardPriority;
+};
 
 /// Transfer kinds as defined by the Cyphal Specification.
-typedef enum
+enum SerardTransferKind
 {
     SerardTransferKindMessage  = 0,  ///< Multicast, from publisher to all subscribers.
     SerardTransferKindResponse = 1,  ///< Point-to-point, from server to client.
     SerardTransferKindRequest  = 2,  ///< Point-to-point, from client to server.
-} SerardTransferKind;
+};
 #define SERARD_NUM_TRANSFER_KINDS 3
 
 /// The AVL tree node structure is exposed here to avoid pointer casting/arithmetics inside the library.
 /// The user code is not expected to interact with this type except if advanced introspection is required.
 struct SerardTreeNode
 {
-    SerardTreeNode* up;     ///< Do not access this field.
-    SerardTreeNode* lr[2];  ///< Left and right children of this node may be accessed for tree traversal.
-    int8_t          bf;     ///< Do not access this field.
+    struct SerardTreeNode* up;     ///< Do not access this field.
+    struct SerardTreeNode* lr[2];  ///< Left and right children of this node may be accessed for tree traversal.
+    int8_t                 bf;     ///< Do not access this field.
 };
 
 /// A Cyphal transfer metadata (everything except the payload).
-typedef struct
+struct SerardTransferMetadata
 {
-    SerardPriority priority;
+    enum SerardPriority priority;
 
-    SerardTransferKind transfer_kind;
+    enum SerardTransferKind transfer_kind;
 
     /// Subject-ID for message publications; service-ID for service requests/responses.
     SerardPortID port_id;
@@ -125,15 +123,15 @@ typedef struct
     /// A simple and robust way of managing transfer-ID counters is to keep a separate static variable per subject-ID
     /// and per (service-ID, server-node-ID) pair.
     SerardTransferID transfer_id;
-} SerardTransferMetadata;
+};
 
 /// Transfer subscription state. The application can register its interest in a particular kind of transfers exchanged
 /// over the link by creating such subscription objects.
 /// Transfers for which there is no active subscription will be silently dropped by the library.
 /// SUBSCRIPTION INSTANCES SHALL NOT BE MOVED WHILE IN USE.
-typedef struct SerardRxSubscription
+struct SerardRxSubscription
 {
-    SerardTreeNode base;  ///< Read-only
+    struct SerardTreeNode base;  ///< Read-only
 
     SerardMicrosecond transfer_id_timeout_usec;
     size_t            extent;   ///< Read-only
@@ -143,13 +141,13 @@ typedef struct SerardRxSubscription
     /// Its purpose is to simplify integration with OOP interfaces.
     void* user_reference;
 
-    SerardTreeNode* sessions;  ///< Read-only
-} SerardRxSubscription;
+    struct SerardInternalRxSession* sessions;  ///< Read-only
+};
 
 /// Reassembled incoming transfer returned by serardRxAccept().
-typedef struct SerardRxTransfer
+struct SerardRxTransfer
 {
-    SerardTransferMetadata metadata;
+    struct SerardTransferMetadata metadata;
 
     /// The timestamp of the first received data fragment of this transfer.
     /// The time system may be arbitrary as long as the clock is monotonic (steady).
@@ -159,24 +157,46 @@ typedef struct SerardRxTransfer
     /// The application is required to deallocate the payload buffer after the transfer is processed.
     size_t payload_size;
     void*  payload;
-} SerardRxTransfer;
+};
 
 /// A pointer to the memory allocation function. The semantics are similar to malloc():
-///     - The returned pointer shall point to an uninitialized block of memory that is at least "amount" bytes large.
+///     - The returned pointer shall point to an uninitialized block of memory that is at least "size" bytes large.
 ///     - If there is not enough memory, the returned pointer shall be NULL.
 ///     - The memory shall be aligned at least at max_align_t.
 ///     - The execution time should be constant (O(1)).
-///     - The worst-case memory fragmentation should be bounded and easily predictable.
+///     - The worst-case memory consumption (worst fragmentation) should be understood by the developer.
+///
 /// If the standard dynamic memory manager of the target platform does not satisfy the above requirements,
-/// consider using O1Heap: https://github.com/pavel-kirienko/o1heap.
-typedef void* (*SerardMemoryAllocate)(Serard* ins, size_t amount);
+/// consider using O1Heap: https://github.com/pavel-kirienko/o1heap. Alternatively, some applications may prefer to
+/// use a set of fixed-size block pool allocators (see the high-level overview for details).
+///
+/// The API documentation is written on the assumption that the memory management functions have constant
+/// complexity and are non-blocking.
+///
+/// The value of the user reference is taken from the corresponding field of the memory resource structure.
+typedef void* (*SerardMemoryAllocate)(void* const user_reference, const size_t size);
 
 /// The counterpart of the above -- this function is invoked to return previously allocated memory to the allocator.
+/// The size argument contains the amount of memory that was originally requested via the allocation function;
+/// its value is undefined if the pointer is NULL.
 /// The semantics are similar to free():
 ///     - The pointer was previously returned by the allocation function.
 ///     - The pointer may be NULL, in which case the function shall have no effect.
 ///     - The execution time should be constant (O(1)).
-typedef void (*SerardMemoryFree)(Serard* ins, void* pointer);
+///
+/// The value of the user reference is taken from the corresponding field of the memory resource structure.
+typedef void (*SerardMemoryDeallocate)(void* const user_reference, const size_t size, void* const pointer);
+
+/// A memory resource encapsulates the dynamic memory allocation and deallocation facilities.
+/// Note that the library allocates a large amount of small fixed-size objects for bookkeeping purposes;
+/// allocators for them can be implemented using fixed-size block pools to eliminate extrinsic memory fragmentation.
+/// Instances are mostly intended to be passed by value.
+struct SerardMemoryResource
+{
+    void*                  user_reference;  ///< Passed as the first argument.
+    SerardMemoryDeallocate deallocate;      ///< Shall be a valid pointer.
+    SerardMemoryAllocate   allocate;        ///< Shall be a valid pointer.
+};
 
 /// This function is invoked per fragment of the constructed serialized transfer.
 /// The data_size is guaranteed to be in [1, 255] and the data pointer is guaranteed to be valid.
@@ -197,54 +217,64 @@ struct Serard
     /// The default value is SERARD_NODE_ID_UNSET.
     SerardNodeID node_id;
 
-    /// Dynamic memory management callbacks. See their type documentation for details.
-    /// They SHALL be valid function pointers at all times.
-    /// The time complexity models given in the API documentation are made on the assumption that the memory management
-    /// functions have constant complexity O(1).
+    /// The library uses separate memory resources for two kinds of objects:
     ///
-    /// The following API functions may allocate memory:   serardRxAccept()
-    /// The following API functions may deallocate memory: serardRxAccept(), serardRxSubscribe(), serardRxUnsubscribe().
-    /// The exact memory requirement and usage model is specified for each function in its documentation.
-    SerardMemoryAllocate memory_allocate;
-    SerardMemoryFree     memory_free;
+    ///     - Payload buffers allocated for the received transfers.
+    ///       The size of each allocation is (metadata overhead) + max(extent, (payload size));
+    ///       transfers that contain larger payload will be implicitly truncated (see the Implicit Truncation Rule).
+    ///
+    ///     - RX session states. Each session state is a small object of size sizeof(SerardInternalRxSession)
+    ///       used for internal bookkeeping per remote node transmitting data on a given port.
+    ///
+    /// The user may leverage this separation to implement different memory allocation strategies for these two kinds
+    /// of objects. For example, the user may choose to allocate the payload buffers from O1Heap and the session
+    /// states from a fixed-size block pool.
+    struct SerardMemoryResource memory_payload;
+    struct SerardMemoryResource memory_rx_session;
 
     /// Read-only
-    SerardTreeNode* rx_subscriptions[SERARD_NUM_TRANSFER_KINDS];
+    struct SerardRxSubscription* rx_subscriptions[SERARD_NUM_TRANSFER_KINDS];
 };
 
 /// Each redundant interface from which transfers are to be received needs to have a separate instance of this type.
-/// It keeps the state related to the transfer de-segmentation, COBS decoding, and CRC verification.
-typedef struct
+/// It keeps the state related to COBS decoding and CRC verification.
+/// There is no de-segmentation because in Cyphal/serial, the maximum frame size is unlimited.
+///
+/// Ex https://github.com/Zubax/kocherga/blob/69e2131d3a26807428f67dc2f823afd988da1bc7/kocherga/kocherga_serial.hpp#L161
+struct SerardReassembler
 {
-    uint8_t _stub;
-} SerardReassembler;
+    uint8_t code;
+    uint8_t copy;
+};
 
 /// Construct a new library instance.
 /// The default values will be assigned as specified in the structure field documentation.
 /// If any of the pointers are NULL, the behavior is undefined.
 /// The instance does not hold any resources itself except for the allocated memory.
 /// The time complexity is constant. This function does not invoke the dynamic memory manager.
-Serard serardInit(const SerardMemoryAllocate memory_allocate, const SerardMemoryFree memory_free);
+struct Serard serardInit(const SerardMemoryAllocate        memory_allocate,
+                         const struct SerardMemoryResource memory_payload,
+                         const struct SerardMemoryResource memory_rx_session);
 
 /// TODO the docs are missing.
 /// Negative -- invalid argument; zero -- emitter failure; positive -- success.
-int32_t serardTxPush(const SerardTransferMetadata* const metadata,
-                     const size_t                        payload_size,
-                     const void* const                   payload,
-                     void* const                         user_reference,
-                     const SerardTxEmit                  emitter);
+int32_t serardTxPush(const struct SerardTransferMetadata* const metadata,
+                     const size_t                               payload_size,
+                     const void* const                          payload,
+                     void* const                                user_reference,
+                     const SerardTxEmit                         emitter);
 
 /// TODO the docs are missing.
 /// If inout_payload_size is positive, the payload pointer shall be advanced by the negative payload size delta
 /// and the function shall be invoked again. This condition is guaranteed to never occur if the input payload size
 /// does not exceed 32 bytes.
-int8_t serardRxAccept(Serard* const                ins,
-                      SerardReassembler* const     reassembler,
-                      const SerardMicrosecond      timestamp_usec,
-                      size_t* const                inout_payload_size,
-                      const uint8_t* const         payload,
-                      SerardRxTransfer* const      out_transfer,
-                      SerardRxSubscription** const out_subscription);
+int8_t serardRxAccept(struct Serard* const                ins,
+                      struct SerardReassembler* const     reassembler,
+                      const SerardMicrosecond             timestamp_usec,
+                      size_t* const                       inout_payload_size,
+                      const uint8_t* const                payload,
+                      struct SerardRxTransfer* const      out_transfer,
+                      struct SerardRxSubscription** const out_subscription);
 
 /// This function creates a new subscription, allowing the application to register its interest in a particular
 /// category of transfers. The library will reject all transfers for which there is no active subscription.
@@ -271,12 +301,12 @@ int8_t serardRxAccept(Serard* const                ins,
 /// For the time complexity see serardRxUnsubscribe().
 /// This function does not allocate new memory. The function may deallocate memory if such subscription already
 /// existed; the deallocation behavior is specified in the documentation for serardRxUnsubscribe().
-int8_t serardRxSubscribe(Serard* const               ins,
-                         const SerardTransferKind    transfer_kind,
-                         const SerardPortID          port_id,
-                         const size_t                extent,
-                         const SerardMicrosecond     transfer_id_timeout_usec,
-                         SerardRxSubscription* const out_subscription);
+int8_t serardRxSubscribe(struct Serard* const               ins,
+                         const enum SerardTransferKind      transfer_kind,
+                         const SerardPortID                 port_id,
+                         const size_t                       extent,
+                         const SerardMicrosecond            transfer_id_timeout_usec,
+                         struct SerardRxSubscription* const out_subscription);
 
 /// This function reverses the effect of serardRxSubscribe().
 /// If the subscription is found, all its memory is de-allocated (session states and payload buffers); to determine
@@ -289,7 +319,9 @@ int8_t serardRxSubscribe(Serard* const               ins,
 /// The time complexity is O(log x + y), where x is the number of current subscriptions under the specified transfer
 /// kind, and y is the number of existing RX sessions for the selected subscription.
 /// This function does not allocate new memory.
-int8_t serardRxUnsubscribe(Serard* const ins, const SerardTransferKind transfer_kind, const SerardPortID port_id);
+int8_t serardRxUnsubscribe(struct Serard* const          ins,
+                           const enum SerardTransferKind transfer_kind,
+                           const SerardPortID            port_id);
 
 #ifdef __cplusplus
 }
