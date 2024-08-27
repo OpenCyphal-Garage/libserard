@@ -245,16 +245,19 @@ struct Serard
     struct SerardRxSubscription* rx_subscriptions[SERARD_NUM_TRANSFER_KINDS];
 };
 
-/// Each redundant interface from which transfers are to be received needs to have a separate instance of this type.
-/// It keeps the state related to COBS decoding and CRC verification.
+/// Each redundant transport from which transfers are to be received needs to have a separate instance of this type.
+/// It stores the necessary state for COBS decoding and CRC verification.
 /// There is no de-segmentation because in Cyphal/serial, the maximum frame size is unlimited.
 ///
 /// Ex https://github.com/Zubax/kocherga/blob/69e2131d3a26807428f67dc2f823afd988da1bc7/kocherga/kocherga_serial.hpp#L161
 struct SerardReassembler
 {
+    /// Used for COBS decoding.
     uint8_t code;
     uint8_t copy;
+    // TODO: cheaper than just using enum (u32)?
     uint8_t state;
+    // TODO: is uint8_t big enough?
     uint8_t counter;
     // TODO: can we (re)move this?
     uint8_t header[24];
@@ -265,11 +268,18 @@ struct SerardReassembler
 
 /// Construct a new library instance.
 /// The default values will be assigned as specified in the structure field documentation.
-/// If any of the pointers are NULL, the behavior is undefined.
+/// If any of the memory resource function pointers are NULL, the behavior is undefined.
 /// The instance does not hold any resources itself except for the allocated memory.
 /// The time complexity is constant. This function does not invoke the dynamic memory manager.
 struct Serard serardInit(const struct SerardMemoryResource memory_payload,
                          const struct SerardMemoryResource memory_rx_session);
+
+/// Construct a new reassembler instance.
+/// An instance of the reassembler is required for each redundant transport interface
+/// the library instance is being used with.
+/// The instance does not hold any resources intself except for the allocated memory.
+/// The time complexity is constant. This function does not invoke the dynamic memory manager.
+struct SerardReassembler serardReassemblerInit(void);
 
 /// TODO the docs are missing.
 /// Negative -- invalid argument; zero -- emitter failure; positive -- success.
@@ -281,9 +291,6 @@ int8_t serardTxPush(struct Serard* const                       ins,
                     const SerardTxEmit                         emitter);
 
 /// TODO the docs are missing.
-struct SerardReassembler serardReassemblerInit(void);
-
-/// TODO the docs are missing.
 /// If inout_payload_size is greater than zero, the payload pointer shall be advanced by the negative payload size delta
 /// and the function shall be invoked again. This condition is guaranteed to never occur if the input payload size
 /// does not exceed 32 bytes.
@@ -292,6 +299,7 @@ int8_t serardRxAccept(struct Serard* const                ins,
                       const SerardMicrosecond             timestamp_usec,
                       size_t* const                       inout_payload_size,
                       const uint8_t* const                payload,
+                      const uint8_t                       redundant_transport_index,
                       struct SerardRxTransfer* const      out_transfer,
                       struct SerardRxSubscription** const out_subscription);
 

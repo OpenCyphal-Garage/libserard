@@ -570,7 +570,7 @@ TEST_CASE("serardRxAcceptInternal")
         for (const auto byte : junk)
         {
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
             REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
             REQUIRE(0U == reassembler.counter);
@@ -582,7 +582,7 @@ TEST_CASE("serardRxAcceptInternal")
         {
             const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
             std::size_t        inout_size = 1U;
-            const int8_t       ret = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t       ret = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
             REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
         }
@@ -601,7 +601,7 @@ TEST_CASE("serardRxAcceptInternal")
             REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
             const auto   byte       = header_enc[0];
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
         }
 
@@ -611,7 +611,7 @@ TEST_CASE("serardRxAcceptInternal")
             REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
             const auto   byte       = header_enc[1];
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
 
             REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
@@ -624,7 +624,7 @@ TEST_CASE("serardRxAcceptInternal")
         {
             const auto   byte       = header_enc[i];
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
 
             REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
@@ -636,7 +636,7 @@ TEST_CASE("serardRxAcceptInternal")
             REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
             const auto   byte       = header_enc[24];
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
 
             // the API is not required to preserve the header on rejected transfers
@@ -674,7 +674,7 @@ TEST_CASE("serardRxAcceptInternal")
         for (const auto byte : payload_enc)
         {
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
             REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
         }
@@ -682,7 +682,7 @@ TEST_CASE("serardRxAcceptInternal")
         // feed in a delimiter, the state should transition
         const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
         std::size_t        inout_size = 1U;
-        const int8_t       ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+        const int8_t       ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
         REQUIRE(0U == ret);
         REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
     }
@@ -707,7 +707,7 @@ TEST_CASE("serardRxAcceptInternal")
         for (const auto byte : junk)
         {
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
             REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
             REQUIRE(0U == reassembler.counter);
@@ -719,7 +719,7 @@ TEST_CASE("serardRxAcceptInternal")
         {
             const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
             std::size_t        inout_size = 1U;
-            const int8_t       ret = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t       ret = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
             REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
         }
@@ -738,7 +738,7 @@ TEST_CASE("serardRxAcceptInternal")
             REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
             const auto   byte       = header_enc[0];
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
         }
 
@@ -748,7 +748,7 @@ TEST_CASE("serardRxAcceptInternal")
             REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
             const auto   byte       = header_enc[1];
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
 
             REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
@@ -761,7 +761,7 @@ TEST_CASE("serardRxAcceptInternal")
         {
             const auto   byte       = header_enc[i];
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
 
             REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
@@ -773,7 +773,7 @@ TEST_CASE("serardRxAcceptInternal")
             REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
             const auto   byte       = header_enc[24];
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
 
             // this time, the reassembler counter will be reset
@@ -814,7 +814,7 @@ TEST_CASE("serardRxAcceptInternal")
         for (const auto byte : payload)
         {
             std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, &out, &out_sub);
+            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
             REQUIRE(0U == ret);
             REQUIRE(State::PAYLOAD == static_cast<State>(reassembler.state));
         }
@@ -822,7 +822,7 @@ TEST_CASE("serardRxAcceptInternal")
         // feed in a delimiter, the state should transition
         const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
         std::size_t        inout_size = 1U;
-        const int8_t       ret        = serardRxAccept(&serard, &reassembler, 1000, &inout_size, &byte, &out, &out_sub);
+        const int8_t       ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
         REQUIRE(1U == ret);
         REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
 
