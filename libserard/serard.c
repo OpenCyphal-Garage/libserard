@@ -401,7 +401,9 @@ SERARD_PRIVATE uint64_t littleToHost64(const uint8_t* const in)
 
 SERARD_PRIVATE uint16_t txMakeSessionSpecifier(const enum SerardTransferKind transfer_kind, const SerardPortID port_id)
 {
-    SERARD_ASSERT(transfer_kind <= SerardTransferKindRequest);
+    SERARD_ASSERT(transfer_kind <= SERARD_TRANSFER_KIND_MAX);
+    SERARD_ASSERT(port_id <=
+                  ((transfer_kind == SerardTransferKindMessage) ? SERARD_SUBJECT_ID_MAX : SERARD_SERVICE_ID_MAX));
 
     const uint16_t snm = (transfer_kind == SerardTransferKindMessage) ? 0U : SERVICE_NOT_MESSAGE;
     const uint16_t rnr = (transfer_kind == SerardTransferKindRequest) ? REQUEST_NOT_RESPONSE : 0U;
@@ -763,26 +765,46 @@ int8_t serardTxPush(struct Serard* const                       ins,
                     void* const                                user_reference,
                     const SerardTxEmit                         emitter)
 {
-    if ((ins == NULL) || (metadata == NULL) || (emitter == NULL) || (metadata->priority > SERARD_PRIORITY_MAX) ||
-        (metadata->transfer_kind > SERARD_TRANSFER_KIND_MAX))
+    // With exception of the user_reference, input pointers shall not be NULL.
+    if ((ins == NULL) || (metadata == NULL) || (emitter == NULL) || ((payload_size > 0) && payload == NULL))
     {
         return -SERARD_ERROR_ARGUMENT;
     }
-
-    const SerardPortID port_id_max =
-        (SerardTransferKindMessage == metadata->transfer_kind) ? SERARD_SUBJECT_ID_MAX : SERARD_SERVICE_ID_MAX;
-    if (metadata->port_id > port_id_max)
+    // The priority and transfer kind shall not exceed the maximum.
+    if ((metadata->priority > SERARD_PRIORITY_MAX) || (metadata->transfer_kind > SERARD_TRANSFER_KIND_MAX))
     {
         return -SERARD_ERROR_ARGUMENT;
     }
+    if (SerardTransferKindMessage == metadata->transfer_kind)
+    {
+        // The remote node-ID shall be SERARD_NODE_ID_UNSET, and the subject-ID shall not
+        // exceed SERARD_SUBJECT_ID_MAX.
+        if ((metadata->remote_node_id != SERARD_NODE_ID_UNSET) || (metadata->port_id > SERARD_SUBJECT_ID_MAX))
+        {
+            return -SERARD_ERROR_ARGUMENT;
+        }
+    }
+    else
+    {
+        // The remote node-ID shall not exceed SERARD_NODE_ID_MAX, and the service-ID shall
+        // not exceed SERARD_SERVICE_ID_MAX. The local node shall not be anonymous.
+        if ((metadata->remote_node_id > SERARD_NODE_ID_MAX) || (metadata->port_id > SERARD_SERVICE_ID_MAX) ||
+            (ins->node_id == SERARD_NODE_ID_UNSET))
+        {
+            return -SERARD_ERROR_ARGUMENT;
+        }
+    }
 
-    const size_t   header_payload_size = HEADER_SIZE + payload_size + TRANSFER_CRC_SIZE_BYTES;
-    const size_t   max_frame_size = cobsEncodingSize(header_payload_size) + 2U;  // 2 bytes extra for frame delimiters
-    uint8_t* const buffer         = ins->memory_payload.allocate(ins->memory_payload.user_reference, max_frame_size);
+    // Allocate a single buffer to store the COBS encoded header, payload, and CRC.
+    const size_t transfer_size_unencoded = HEADER_SIZE + payload_size + TRANSFER_CRC_SIZE_BYTES;
+    const size_t transfer_size = cobsEncodingSize(transfer_size_unencoded) + 2U;  // 2 bytes extra for frame delimiters
+    uint8_t* const buffer      = ins->memory_payload.allocate(ins->memory_payload.user_reference, transfer_size);
     if (buffer == NULL)
     {
         return -SERARD_ERROR_MEMORY;
     }
+
+    int8_t ret = 1;
 
     size_t buffer_offset           = 0;
     buffer[buffer_offset++]        = COBS_FRAME_DELIMITER;
@@ -811,17 +833,18 @@ int8_t serardTxPush(struct Serard* const                       ins,
     {
         const size_t  bytes_left = buffer_offset - bytes_transmitted;
         const uint8_t chunk_size = (bytes_left > BYTE_MAX) ? BYTE_MAX : ((uint8_t) bytes_left);
-        bool          out        = emitter(user_reference, chunk_size, &buffer[bytes_transmitted]);
+        const bool    out        = emitter(user_reference, chunk_size, &buffer[bytes_transmitted]);
         if (!out)
         {
-            ins->memory_payload.deallocate(ins->memory_payload.user_reference, max_frame_size, buffer);
-            return 0;
+            // Emitter failure, abort rest of transfer.
+            ret = 0;
+            break;
         }
         bytes_transmitted += chunk_size;
     }
 
-    ins->memory_payload.deallocate(ins->memory_payload.user_reference, max_frame_size, buffer);
-    return 1;
+    ins->memory_payload.deallocate(ins->memory_payload.user_reference, transfer_size, buffer);
+    return ret;
 }
 
 int8_t serardRxAccept(struct Serard* const                ins,

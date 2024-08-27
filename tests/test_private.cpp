@@ -405,9 +405,9 @@ TEST_CASE("littleToHost")
 
 TEST_CASE("txMakeSessionSpecifier")
 {
-    REQUIRE(0x1afe == exposed::txMakeSessionSpecifier(SerardTransferKindMessage, 0x1afe));
-    REQUIRE(0xdafe == exposed::txMakeSessionSpecifier(SerardTransferKindRequest, 0x1afe));
-    REQUIRE(0x9afe == exposed::txMakeSessionSpecifier(SerardTransferKindResponse, 0x1afe));
+    REQUIRE(0x0afe == exposed::txMakeSessionSpecifier(SerardTransferKindMessage, 0xafe));
+    REQUIRE(0xc1fe == exposed::txMakeSessionSpecifier(SerardTransferKindRequest, 0x1fe));
+    REQUIRE(0x81fe == exposed::txMakeSessionSpecifier(SerardTransferKindResponse, 0x1fe));
 }
 
 TEST_CASE("txMakeHeader")
@@ -425,7 +425,7 @@ TEST_CASE("txMakeHeader")
             .priority       = SerardPriorityNominal,
             .transfer_kind  = SerardTransferKindMessage,
             .port_id        = 1234,
-            .remote_node_id = 4321,  // TODO: is this correct?
+            .remote_node_id = 4321,
             .transfer_id    = 0,
         };
 
@@ -441,7 +441,7 @@ TEST_CASE("txMakeHeader")
         struct SerardTransferMetadata metadata = {
             .priority       = SerardPriorityImmediate,
             .transfer_kind  = SerardTransferKindResponse,
-            .port_id        = 1234,  // TODO: illegal
+            .port_id        = 123,
             .remote_node_id = 4321,
             .transfer_id    = 0,
         };
@@ -458,7 +458,7 @@ TEST_CASE("txMakeHeader")
         struct SerardTransferMetadata metadata = {
             .priority       = SerardPriorityOptional,
             .transfer_kind  = SerardTransferKindRequest,
-            .port_id        = 5678,  // TODO: illegal
+            .port_id        = 456,
             .remote_node_id = 4321,
             .transfer_id    = 0xCAFEB0BAUL,
         };

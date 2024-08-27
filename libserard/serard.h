@@ -130,13 +130,16 @@ struct SerardTransferMetadata
 };
 
 /// Transfer subscription state. The application can register its interest in a particular kind of transfers exchanged
-/// over the link by creating such subscription objects.
+/// over the link by creating such subscription objects, see serardRxSubscribe.
 /// Transfers for which there is no active subscription will be silently dropped by the library.
 /// SUBSCRIPTION INSTANCES SHALL NOT BE MOVED WHILE IN USE.
 struct SerardRxSubscription
 {
     struct SerardTreeNode base;  ///< Read-only
 
+    /// For a given session specifier, a successfully reassembled transfer that is temporally separated from any other
+    /// successfully reassembled transfer under the same session specifier by more than the transfer-ID timeout is
+    /// considered unique regardless of its transfer-ID value.
     SerardMicrosecond transfer_id_timeout_usec;
     size_t            extent;   ///< Read-only
     SerardPortID      port_id;  ///< Read-only
@@ -164,6 +167,7 @@ struct SerardRxTransfer
     /// The application is required to deallocate the payload buffer after the transfer is processed.
     /// Always de-allocate payload_extent bytes, NOT payload_size
     size_t payload_size;
+    // TODO: is this the same as the rx subscription extent?
     size_t payload_extent;
     void*  payload;
 };
@@ -281,7 +285,36 @@ struct Serard serardInit(const struct SerardMemoryResource memory_payload,
 /// The time complexity is constant. This function does not invoke the dynamic memory manager.
 struct SerardReassembler serardReassemblerInit(void);
 
-/// TODO the docs are missing.
+/// This function serializes a transfer into a sequence of bytes and transmits them via the emitter interface.
+/// The application should provide a function conforming to the SerardTxEmit function signature which, when
+/// called with a fragment of the byte sequence of size [1, 255], transmits them from the underlying transport
+/// interface (not managed by the library).
+///
+/// As neither the underlying serial interface nor the Cyphal/serial transport specification places any upper
+/// limit on the size of a frame, each Cyphal/serial transfer is a single frame of arbitrary length. However,
+/// if the serialized transfer is larger than 255 bytes, the library will call the emitter repeatedly, with
+/// a size of 255 bytes on all but possibly the last call. This allows the semantics of the transport-specific
+/// transmission queue to be application defined (for example, blocking on a fixed size hardware transmission FIFO).
+///
+/// The user_reference is passed directly to each call of the emitter; it is neither read nor modified by the
+/// library. Its use is to allow passing application specific objects through the TX interface to the
+/// emitter, such as transport interface details. It can be NULL if unused.
+///
+/// An invalid argument error may be returned in the following cases:
+///     - Any of the input arguments are NULL.
+///     - The remote node-ID is not SERARD_NODE_ID_UNSET and the transfer is a message transfer.
+///     - The remote node-ID is above SERARD_NODE_ID_MAX and the transfer is a service transfer.
+///     - The priority, subject-ID, or service-ID exceed their respective maximums.
+///     - The transfer kind is invalid.
+///     - The transfer-ID is above SERARD_TRANSFER_ID_MAX.
+///     - The payload pointer is NULL while the payload size is nonzero.
+///     - The local node is anonymous and a service transfer is requested.
+///
+/// An out-of-memory error is returned if a TX buffer could not be allocated due to the memory being exhausted.
+///
+/// TODO: time complexity
+///
+/// The memory allocation requirement is one allocation of size (28 + payload_size + ceil((28 + payload_size) / 254)).
 /// Negative -- invalid argument; zero -- emitter failure; positive -- success.
 int8_t serardTxPush(struct Serard* const                       ins,
                     const struct SerardTransferMetadata* const metadata,
