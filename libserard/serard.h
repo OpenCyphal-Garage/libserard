@@ -48,9 +48,6 @@ extern "C" {
 #define SERARD_NODE_ID_MAX 0xFFFEU
 #define SERARD_PRIORITY_MAX 7U
 #define SERARD_TRANSFER_KIND_MAX 2U
-// TODO: probably incorrect max?
-#define SERARD_TRANSFER_ID_BIT_LENGTH 5U
-#define SERARD_TRANSFER_ID_MAX ((1U << SERARD_TRANSFER_ID_BIT_LENGTH) - 1U)
 
 /// This value represents an undefined node-ID: broadcast destination or anonymous source.
 #define SERARD_NODE_ID_UNSET 0xFFFFU

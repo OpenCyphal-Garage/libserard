@@ -208,7 +208,7 @@ struct SerardInternalRxSession
     SerardMicrosecond transfer_timestamp_usec;  ///< Used to validate transfer delay against restart timeout.
     SerardTransferID  transfer_id;              ///< Used to deduplicate transfers on redundant or unreliable networks.
     SerardNodeID      source_node_id;           ///< Sessions are maintained per unique remote node (ID).
-    uint8_t           redundant_transport_index;  ///< Arbitrary value in [0, 255].
+    uint8_t           redundant_iface_index;  ///< Arbitrary value in [0, 255].
 };
 
 /// High-level transfer model.
@@ -420,7 +420,6 @@ SERARD_PRIVATE void txMakeHeader(const struct Serard* const                 ins,
     SERARD_ASSERT((ins->node_id == SERARD_NODE_ID_UNSET) || (ins->node_id <= SERARD_NODE_ID_MAX));
     SERARD_ASSERT((metadata->remote_node_id == SERARD_NODE_ID_UNSET) ||
                   (metadata->remote_node_id <= SERARD_NODE_ID_MAX));
-    SERARD_ASSERT(metadata->transfer_id <= SERARD_TRANSFER_ID_MAX);
 
     const uint16_t data_specifier_snm = txMakeSessionSpecifier(metadata->transfer_kind, metadata->port_id);
     const uint32_t frame_index_eot    = FRAME_INDEX | END_OF_TRANSFER;
@@ -616,10 +615,8 @@ SERARD_PRIVATE void rxSessionUpdate(struct Serard* const                  ins,
     SERARD_ASSERT(ins != NULL);
     SERARD_ASSERT(rxs != NULL);
     SERARD_ASSERT(transfer != NULL);
-    SERARD_ASSERT(rxs->transfer_id <= SERARD_TRANSFER_ID_MAX);
 
     const struct SerardTransferMetadata* metadata = &transfer->metadata;
-    SERARD_ASSERT(metadata->transfer_id <= SERARD_TRANSFER_ID_MAX);
 
     const bool tid_timed_out = (transfer->timestamp_usec > rxs->transfer_timestamp_usec) &&
                                ((transfer->timestamp_usec - rxs->transfer_timestamp_usec) > transfer_id_timeout_usec);
@@ -628,12 +625,12 @@ SERARD_PRIVATE void rxSessionUpdate(struct Serard* const                  ins,
     const bool not_monotonic = (metadata->transfer_id - rxs->transfer_id) > 1;
 
     const bool need_restart =
-        tid_timed_out || ((rxs->redundant_transport_index == redundant_transport_index) && not_monotonic);
+        tid_timed_out || ((rxs->redundant_iface_index == redundant_transport_index) && not_monotonic);
 
     if (need_restart)
     {
         rxs->transfer_id               = metadata->transfer_id;
-        rxs->redundant_transport_index = redundant_transport_index;
+        rxs->redundant_iface_index = redundant_transport_index;
     }
 }
 
@@ -650,7 +647,6 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct Serard* const            ins,
 
     const struct SerardTransferMetadata* const metadata     = &transfer->metadata;
     const struct SerardRxSubscription* const   subscription = reassembler->sub;
-    SERARD_ASSERT(metadata->transfer_id <= SERARD_TRANSFER_ID_MAX);
 
     // TODO: maybe we can just use the out_transfer->size to track the counter?
     const size_t payload_size = reassembler->counter;
@@ -686,7 +682,7 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct Serard* const            ins,
                 rxs->transfer_timestamp_usec   = transfer->timestamp_usec;
                 rxs->source_node_id            = metadata->remote_node_id;
                 rxs->transfer_id               = metadata->transfer_id;
-                rxs->redundant_transport_index = redundant_transport_index;
+                rxs->redundant_iface_index = redundant_transport_index;
 
                 SERARD_UNUSED(cavlSearch((struct SerardTreeNode**) &subscription->sessions,
                                          (void*) &metadata->remote_node_id,

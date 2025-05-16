@@ -43,7 +43,7 @@ TEST_CASE("serardTxPush")
         struct Serard serard = serardInit(allocator, allocator);
         serard.node_id       = 4321;
 
-        // TODO: reject illegal port ids
+        // TODO: test rejection of illegal port ids
         struct SerardTransferMetadata metadata = {
             .priority       = SerardPrioritySlow,
             .transfer_kind  = SerardTransferKindRequest,
@@ -54,7 +54,6 @@ TEST_CASE("serardTxPush")
 
         buffer_t    result_buffer;
         auto* const user_reference = reinterpret_cast<void*>(&result_buffer);
-        // TODO: look at return result ([[nodiscard]])
         const auto ret = serardTxPush(&serard, &metadata, 0, nullptr, user_reference, &serardEmitter);
         REQUIRE(ret > 0);
 
