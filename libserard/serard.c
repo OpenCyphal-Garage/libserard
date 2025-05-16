@@ -1,11 +1,11 @@
 /// This software is distributed under the terms of the MIT License.
-/// Copyright (c) 2022-2024 OpenCyphal.
+/// Copyright (c) 2022-2025 OpenCyphal.
 /// Author: Pavel Kirienko <pavel@opencyphal.org>
 /// Author: Kalyan Sriram <coder.kalyan@gmail.com>
 
 #include "serard.h"
 #include "_serard_cavl.h"
-#include <bits/stdint-uintn.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
 #include <sys/types.h>

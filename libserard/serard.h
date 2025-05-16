@@ -207,8 +207,8 @@ typedef void (*SerardMemoryDeallocate)(void* const user_reference, const size_t 
 struct SerardMemoryResource
 {
     void*                  user_reference;  ///< Passed as the first argument.
-    SerardMemoryDeallocate deallocate;      ///< Shall be a valid pointer.
     SerardMemoryAllocate   allocate;        ///< Shall be a valid pointer.
+    SerardMemoryDeallocate deallocate;      ///< Shall be a valid pointer.
 };
 
 /// This function is invoked per fragment of the constructed serialized transfer.
