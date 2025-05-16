@@ -489,8 +489,8 @@ TEST_CASE("rxTryParseHeader")
 {
     struct SerardMemoryResource allocator = {
         .user_reference = nullptr,
-        .deallocate     = &serardFree,
         .allocate       = &serardAlloc,
+        .deallocate     = &serardFree,
     };
     struct Serard serard = serardInit(allocator, allocator);
 
@@ -547,8 +547,8 @@ TEST_CASE("serardRxAcceptInternal")
     // TODO: whitebox testing of RX state machine
     struct SerardMemoryResource allocator = {
         .user_reference = nullptr,
-        .deallocate     = &serardFree,
         .allocate       = &serardAlloc,
+        .deallocate     = &serardFree,
     };
 
     // non-anonymous node with no subscriptions:
