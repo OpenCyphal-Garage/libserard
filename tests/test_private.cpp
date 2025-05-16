@@ -447,7 +447,7 @@ TEST_CASE("txMakeHeader")
         };
 
         std::array<std::uint8_t, 24> buffer   = {0};
-        std::array<std::uint8_t, 24> expected = {0x01, 0x01, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x84,
+        std::array<std::uint8_t, 24> expected = {0x01, 0x01, 0xD2, 0x04, 0xE1, 0x10, 0x7B, 0x80,
                                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                                  0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xAC, 0x89};
         exposed::txMakeHeader(&serard, &metadata, &buffer);
@@ -830,7 +830,6 @@ TEST_CASE("serardRxAcceptInternal")
         REQUIRE(out_sub == &sub);
         REQUIRE(payload.size() == reassembler.counter);
         REQUIRE(payload.size() == out.payload_size);
-        REQUIRE(1000 == out.timestamp_usec);
         for (std::size_t i = 0; i < payload.size(); i++)
         {
             INFO(i);

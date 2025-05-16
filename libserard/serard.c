@@ -212,7 +212,6 @@ struct SerardInternalRxSession
 };
 
 /// High-level transfer model.
-/// TODO: is this needed?
 struct RxTransferModel
 {
     SerardMicrosecond       timestamp_usec;
@@ -226,7 +225,6 @@ struct RxTransferModel
 
 // --------------------------------------------- COBS ---------------------------------------------
 
-// TODO: can this be smaller?
 struct CobsEncoder
 {
     size_t loc;
@@ -419,6 +417,10 @@ SERARD_PRIVATE void txMakeHeader(const struct Serard* const                 ins,
     SERARD_ASSERT(ins != NULL);
     SERARD_ASSERT(metadata != NULL);
     SERARD_ASSERT(buffer != NULL);
+    SERARD_ASSERT((ins->node_id == SERARD_NODE_ID_UNSET) || (ins->node_id <= SERARD_NODE_ID_MAX));
+    SERARD_ASSERT((metadata->remote_node_id == SERARD_NODE_ID_UNSET) ||
+                  (metadata->remote_node_id <= SERARD_NODE_ID_MAX));
+    SERARD_ASSERT(metadata->transfer_id <= SERARD_TRANSFER_ID_MAX);
 
     const uint16_t data_specifier_snm = txMakeSessionSpecifier(metadata->transfer_kind, metadata->port_id);
     const uint32_t frame_index_eot    = FRAME_INDEX | END_OF_TRANSFER;
@@ -527,11 +529,6 @@ bool rxTryParseHeader(const SerardMicrosecond       timestamp_usec,
     // application of the CRC to the entire header shall yield zero
     const HeaderCRC header_crc = headerCRCAdd(HEADER_CRC_INITIAL, HEADER_SIZE, (void*) payload);
     valid                      = valid && (header_crc == HEADER_CRC_RESIDUE);
-    // printf("crc valid: %d %04x %02x%02x\n",
-    //        valid,
-    //        headerCRCAdd(HEADER_CRC_INITIAL, HEADER_SIZE_NO_CRC, (void*) payload),
-    //        payload[HEADER_OFFSET_CRC],
-    //        payload[HEADER_OFFSET_CRC + 1]);
 
     return valid;
 }
@@ -577,7 +574,6 @@ SERARD_PRIVATE int8_t rxTryValidateHeader(struct Serard* const            ins,
             reassembler->counter = 0;
 
             // copy information into output transfer
-            // TODO: figure out what this is doing, see if correct
             rxInitTransferMetadataFromModel(&model, &out_transfer->metadata);
 
             const size_t payload_extent   = sub->extent + TRANSFER_CRC_SIZE_BYTES;

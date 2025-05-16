@@ -62,6 +62,9 @@ extern "C" {
 /// A Cyphal/serial transfer has this byte at the beginning and at the end. Adjacent delimiters may be coalesced.
 #define SERARD_TRANSFER_DELIMITER 0
 
+/// The size of a transfer header, including the CRC.
+#define SERARD_TRANSFER_HEADER_SIZE 24U
+
 // Forward declarations.
 typedef uint64_t SerardMicrosecond;
 typedef uint16_t SerardPortID;
@@ -250,22 +253,19 @@ struct Serard
 };
 
 /// Each redundant transport from which transfers are to be received needs to have a separate instance of this type.
-/// It stores the necessary state for COBS decoding and CRC verification.
+/// It stores the necessary state for COBS decoding and transfer reassembly.
 /// There is no de-segmentation because in Cyphal/serial, the maximum frame size is unlimited.
 ///
 /// Ex https://github.com/Zubax/kocherga/blob/69e2131d3a26807428f67dc2f823afd988da1bc7/kocherga/kocherga_serial.hpp#L161
 struct SerardReassembler
 {
-    /// Used for COBS decoding.
+    size_t  counter;
+    uint8_t state;
+
     uint8_t code;
     uint8_t copy;
-    // TODO: cheaper than just using enum (u32)?
-    uint8_t state;
-    // TODO: is uint8_t big enough?
-    uint8_t counter;
-    // TODO: can we (re)move this?
-    uint8_t header[24];
-    // struct SerardRxHeaderModel header;
+    uint8_t header[SERARD_TRANSFER_HEADER_SIZE];
+
     struct SerardRxSubscription* sub;
     size_t                       max_payload_size;
 };
