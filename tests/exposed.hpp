@@ -20,20 +20,20 @@ using TransferCRC = std::uint32_t;
 
 struct CobsEncoder
 {
-    std::size_t loc;
-    std::size_t chunk;
+    SerardTxEmit emitter;
+    void*        user_reference;
+    std::uint8_t in;
+    std::uint8_t fifo[256];
 
-    CobsEncoder()
-    {
-        loc   = 1U;
-        chunk = 0U;
-    }
+    CobsEncoder(SerardTxEmit const _emitter, void* const _user_reference, std::uint8_t _in) :
+        emitter(_emitter), user_reference(_user_reference), in(_in), fifo(0)
+    {}
 
-    CobsEncoder(std::size_t const _loc, std::size_t const _chunk)
-    {
-        loc   = _loc;
-        chunk = _chunk;
-    }
+    // CobsEncoder(std::size_t const _loc, std::size_t const _chunk)
+    // {
+    //     loc   = _loc;
+    //     chunk = _chunk;
+    // }
 };
 
 struct RxSession
@@ -87,11 +87,12 @@ extern "C" {
 [[nodiscard]] auto transferCRCAddByte(const TransferCRC crc, const std::uint8_t byte) -> TransferCRC;
 [[nodiscard]] auto transferCRCAdd(const TransferCRC crc, const std::size_t size, const void* const data) -> TransferCRC;
 
-void cobsEncodeByte(struct CobsEncoder* const encoder, std::uint8_t const byte, std::uint8_t* const out_buffer);
-void cobsEncodeIncremental(struct CobsEncoder* const encoder,
-                           std::size_t const         payload_size,
-                           const std::uint8_t* const payload,
-                           std::uint8_t* const       out_buffer);
+void cobsPush(struct CobsEncoder* const encoder, std::uint8_t const byte);
+void cobsFlush(struct CobsEncoder* const encoder);
+// void               cobsEncodeIncremental(struct CobsEncoder* const encoder,
+//                                          std::size_t const         payload_size,
+//                                          const std::uint8_t* const payload,
+//                                          std::uint8_t* const       out_buffer);
 [[nodiscard]] auto cobsEncodingSize(std::size_t const payload) -> std::size_t;
 [[nodiscard]] auto cobsDecodeByte(struct SerardReassembler* const reassembler,
                                   uint8_t* const                  inout_byte) -> CobsDecodeResult;
@@ -105,20 +106,18 @@ void               hostToLittle64(uint64_t const in, uint8_t* const out);
 
 [[nodiscard]] auto txMakeSessionSpecifier(const enum SerardTransferKind transfer_kind,
                                           const SerardPortID            port_id) -> std::uint16_t;
-void               txMakeHeader(const struct Serard* const                 serard,
-                                const struct SerardTransferMetadata* const metadata,
-                                void* const                                buffer);
+void txMakeHeader(const SerardNodeID node_id, const struct SerardTransferMetadata* const metadata, void* const buffer);
 
 void               rxInitTransferMetadataFromModel(const struct RxTransferModel* const  frame,
                                                    struct SerardTransferMetadata* const out_transfer);
 [[nodiscard]] auto rxTryParseHeader(const SerardMicrosecond       timestamp_usec,
                                     const std::uint8_t* const     payload,
                                     struct RxTransferModel* const out) -> bool;
-[[nodiscard]] auto rxTryValidateHeader(struct Serard* const            ins,
+[[nodiscard]] auto rxTryValidateHeader(struct SerardRx* const          ins,
                                        struct SerardReassembler* const reassembler,
                                        const SerardMicrosecond         timestamp_usec,
                                        struct SerardRxTransfer* const  out_transfer) -> std::int8_t;
-[[nodiscard]] auto rxAcceptTransfer(struct Serard* const            ins,
+[[nodiscard]] auto rxAcceptTransfer(struct SerardRx* const          ins,
                                     struct SerardRxTransfer* const  transfer,
                                     struct SerardReassembler* const reassembler,
                                     const SerardMicrosecond         timestamp_usec) -> bool;

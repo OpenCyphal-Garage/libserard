@@ -8,20 +8,52 @@
 #include <random>
 #include <limits>
 
-// Instead of actually encoding a payload with cobs, this test case
-// tests the behavior of cobsEncodeByte to different states and inputs
-// For payload testing, see the cobsEncodeIncremental test case
-TEST_CASE("cobsEncodeByte")
+using buffer_t = std::vector<std::uint8_t>;
+
+static bool serardEmitter(void* const user_reference, uint8_t data_size, const uint8_t* data)
 {
+    REQUIRE(data_size > 0);
+    REQUIRE(data != NULL);
+
+    auto* const buffer = reinterpret_cast<buffer_t*>(user_reference);
+    buffer->insert(buffer->end(), data, data + data_size);
+
+    return true;
+}
+
+// Test the cobs encoder state machine on various transitions and edge cases.
+// Note that cobsPush does not output a starting nor ending delimiter so
+// we don't expect any in the output.
+TEST_CASE("cobsPush")
+{
+    const auto encode = [](auto const in, auto const expected, std::uint8_t start = 0U) -> bool {
+        buffer_t             out;
+        exposed::CobsEncoder encoder(serardEmitter, &out, start);
+        for (size_t i = 0; i < in.size(); i++)
+        {
+            exposed::cobsPush(&encoder, in[i]);
+        }
+        exposed::cobsFlush(&encoder);
+
+        bool ret = out == expected;
+        for (const auto byte : out)
+        {
+            ret = ret && (byte != exposed::COBS_FRAME_DELIMITER);
+        }
+
+        // for (auto x : out)
+        //     printf("%02x ", x);
+        // printf("\n");
+
+        return ret;
+    };
+
     // Testing input bytes != COBS_FRAME_DELIMITER, and ignoring the 255
     // byte jump limit
     // * these should always be passed through to the output pointer
     // * the encoder state machine should increment its write pointer
     // * the "chunk" pointer should remain stable
     {
-        exposed::CobsEncoder encoder(0, 0);
-        std::uint8_t         out_byte = exposed::COBS_FRAME_DELIMITER;
-
         using u8_limits = std::numeric_limits<std::uint8_t>;
         for (std::uint32_t val = u8_limits::min(); val <= u8_limits::max(); val++)
         {
@@ -31,141 +63,46 @@ TEST_CASE("cobsEncodeByte")
                 continue;
             }
 
-            out_byte    = exposed::COBS_FRAME_DELIMITER;
-            encoder.loc = 0;  // to make sure we write into out_byte correctly
-            exposed::cobsEncodeByte(&encoder, in_byte, &out_byte);
-            REQUIRE(out_byte == in_byte);
-            REQUIRE(encoder.loc == 1);
-            REQUIRE(encoder.chunk == 0x00);
+            const std::array<std::uint8_t, 1> in  = {in_byte};
+            const buffer_t                    out = {0x02, in_byte};
+            REQUIRE(encode(in, out));
         }
     }
 
-    // Now consider the scenario where the write pointer is at 0x9,
-    // the chunk pointer is at 0x0, and a frame delimiter byte is input:
-    // * the byte at 0x9 should be set to the delimiter value
-    // * the write pointer should increment to 0xA
-    // * the chunk pointer should write (0x9 - 0x0 = 0x9) to the 0x0 byte
-    // * the chunk pointer should advance to the old write pointer (0x9)
-    // * none of the intermediate bytes should be touched
-    {
-        std::array<std::uint8_t, 10> buffer;
-        std::fill(buffer.begin(), buffer.end(), 0xAA);
-        exposed::CobsEncoder encoder(0x9, 0x0);
-        exposed::cobsEncodeByte(&encoder, exposed::COBS_FRAME_DELIMITER, buffer.data());
-
-        REQUIRE(buffer[0x9] == exposed::COBS_FRAME_DELIMITER);
-        REQUIRE(encoder.loc == 0xA);
-        REQUIRE(buffer[0x0] == 0x9);
-        REQUIRE(encoder.chunk == 0x9);
-        for (std::size_t i = 0x1; i <= 0x8; i++)
-        {
-            REQUIRE(buffer[i] == 0xAA);
-        }
-    }
-
-    // Next, consider the same test case as above, but for the *maximum*
-    // allowed chunk distance, that doesn't require a second chunk pointer.
-    // That is, chunk pointer == 0x00, and write pointer == 0x0FE.
-    {
-        std::array<std::uint8_t, 0xFF> buffer;
-        std::fill(buffer.begin(), buffer.end(), 0xAA);
-        exposed::CobsEncoder encoder(0xFE, 0x0);
-        const std::uint8_t   input_byte = exposed::COBS_FRAME_DELIMITER;
-        exposed::cobsEncodeByte(&encoder, input_byte, buffer.data());
-
-        REQUIRE(buffer[0xFE] == exposed::COBS_FRAME_DELIMITER);
-        REQUIRE(encoder.loc == 0xFF);
-        REQUIRE(((uint16_t) buffer[0x0]) == 0xFE);
-        REQUIRE(encoder.chunk == 0xFE);
-        for (std::size_t i = 0x1; i <= 0xFD; i++)
-        {
-            REQUIRE(buffer[i] == 0xAA);
-        }
-    }
-
-    // Finally, consider the case where the chunk pointer is at 0x00
-    // and the write pointer is at 0xFE, but we *don't receive a
-    // delimiter byte:
-    // * byte 0xFE should be set to the input byte
-    // * byte 0x00 should be set to 0xFF to encode that the chunk is of
-    //   maximum size and the next write pointer will be found 0xFF bytes
-    //   ahead
-    // * byte 0xFF, the new chunk pointer, should be zeroed
-    // * the chunk pointer should be set to 0xFF
-    // * the write pointer should be incremented twice to 0x100
-    {
-        std::array<std::uint8_t, 0x200> buffer;
-        std::fill(buffer.begin(), buffer.end(), 0xAA);
-        exposed::CobsEncoder encoder(0xFE, 0x0);
-        const std::uint8_t   input_byte = 0xBB;
-        exposed::cobsEncodeByte(&encoder, input_byte, buffer.data());
-
-        REQUIRE(buffer[0xFE] == input_byte);
-        REQUIRE(buffer[0x00] == 0xFF);
-        REQUIRE(((uint16_t) buffer[0xFF]) == 0x00);
-        REQUIRE(encoder.chunk == 0xFF);
-        REQUIRE(encoder.loc == 0x100);
-        for (std::size_t i = 0x1; i <= 0xFD; i++)
-        {
-            REQUIRE(buffer[i] == 0xAA);
-        }
-    }
-}
-
-TEST_CASE("cobsEncodeIncremental")
-{
     {
         const std::array<std::uint8_t, 2> in       = {0x00, 0x00};
-        const std::array<std::uint8_t, 3> expected = {0x01, 0x01, 0x00};
-        std::array<std::uint8_t, 3>       out{};
-        exposed::CobsEncoder              encoder;
-        exposed::cobsEncodeIncremental(&encoder, in.size(), in.data(), out.data());
-        REQUIRE(out == expected);
+        const buffer_t                    expected = {0x01, 0x01, 0x01};
+        REQUIRE(encode(in, expected));
     }
 
     {
         const std::array<std::uint8_t, 2> in       = {0x01, 0x00};
-        const std::array<std::uint8_t, 3> expected = {0x02, 0x01, 0x00};
-        std::array<std::uint8_t, 3>       out{};
-        exposed::CobsEncoder              encoder;
-        exposed::cobsEncodeIncremental(&encoder, in.size(), in.data(), out.data());
-        REQUIRE(out == expected);
+        const buffer_t                    expected = {0x02, 0x01, 0x01};
+        REQUIRE(encode(in, expected));
     }
 
     {
         const std::array<std::uint8_t, 2> in       = {0x02, 0x00};
-        const std::array<std::uint8_t, 3> expected = {0x02, 0x02, 0x00};
-        std::array<std::uint8_t, 3>       out{};
-        exposed::CobsEncoder              encoder;
-        exposed::cobsEncodeIncremental(&encoder, in.size(), in.data(), out.data());
-        REQUIRE(out == expected);
+        const buffer_t                    expected = {0x02, 0x02, 0x01};
+        REQUIRE(encode(in, expected));
     }
 
     {
         const std::array<std::uint8_t, 2> in       = {0x03, 0x00};
-        const std::array<std::uint8_t, 3> expected = {0x02, 0x03, 0x00};
-        std::array<std::uint8_t, 3>       out{};
-        exposed::CobsEncoder              encoder;
-        exposed::cobsEncodeIncremental(&encoder, in.size(), in.data(), out.data());
-        REQUIRE(out == expected);
+        const buffer_t                    expected = {0x02, 0x03, 0x01};
+        REQUIRE(encode(in, expected));
     }
 
     {
         const std::array<std::uint8_t, 3> in       = {0x00, 0x00, 0x00};
-        const std::array<std::uint8_t, 4> expected = {0x01, 0x01, 0x01, 0x00};
-        std::array<std::uint8_t, 4>       out{};
-        exposed::CobsEncoder              encoder;
-        exposed::cobsEncodeIncremental(&encoder, in.size(), in.data(), out.data());
-        REQUIRE(out == expected);
+        const buffer_t                    expected = {0x01, 0x01, 0x01, 0x01};
+        REQUIRE(encode(in, expected));
     }
 
     {
         const std::array<std::uint8_t, 3> in       = {0x00, 0x01, 0x00};
-        const std::array<std::uint8_t, 4> expected = {0x01, 0x02, 0x01, 0x00};
-        std::array<std::uint8_t, 4>       out{};
-        exposed::CobsEncoder              encoder;
-        exposed::cobsEncodeIncremental(&encoder, in.size(), in.data(), out.data());
-        REQUIRE(out == expected);
+        const buffer_t                    expected = {0x01, 0x02, 0x01, 0x01};
+        REQUIRE(encode(in, expected));
     }
 
     {
@@ -176,7 +113,7 @@ TEST_CASE("cobsEncodeIncremental")
         }
         in[255] = 0x00;
 
-        std::array<std::uint8_t, 258> expected{};
+        buffer_t expected(258);
         expected[0] = 0xFF;
         for (std::size_t i = 0x01; i <= 0xFE; i++)
         {
@@ -184,12 +121,8 @@ TEST_CASE("cobsEncodeIncremental")
         }
         expected[255] = 0x02;
         expected[256] = 0xFF;
-        expected[257] = 0x00;
-
-        std::array<std::uint8_t, 258> out{};
-        exposed::CobsEncoder          encoder;
-        exposed::cobsEncodeIncremental(&encoder, in.size(), in.data(), out.data());
-        REQUIRE(out == expected);
+        expected[257] = 0x01;
+        REQUIRE(encode(in, expected));
     }
 }
 
@@ -412,13 +345,7 @@ TEST_CASE("txMakeSessionSpecifier")
 
 TEST_CASE("txMakeHeader")
 {
-    struct Serard serard = {
-        .user_reference    = nullptr,
-        .node_id           = 1234,
-        .memory_payload    = {},
-        .memory_rx_session = {},
-        .rx_subscriptions  = {nullptr},
-    };
+    const SerardNodeID node_id = 1234;
 
     {
         struct SerardTransferMetadata metadata = {
@@ -433,7 +360,7 @@ TEST_CASE("txMakeHeader")
         std::array<std::uint8_t, 24> expected = {0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x04,
                                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                                  0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6};
-        exposed::txMakeHeader(&serard, &metadata, &buffer);
+        exposed::txMakeHeader(node_id, &metadata, &buffer);
         REQUIRE(expected == buffer);
     }
 
@@ -450,7 +377,7 @@ TEST_CASE("txMakeHeader")
         std::array<std::uint8_t, 24> expected = {0x01, 0x01, 0xD2, 0x04, 0xE1, 0x10, 0x7B, 0x80,
                                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                                  0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xC0, 0xFF};
-        exposed::txMakeHeader(&serard, &metadata, &buffer);
+        exposed::txMakeHeader(node_id, &metadata, &buffer);
         REQUIRE(expected == buffer);
     }
 
@@ -467,7 +394,7 @@ TEST_CASE("txMakeHeader")
         std::array<std::uint8_t, 24> expected = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xC8, 0xC1,
                                                  0xBA, 0xB0, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00,
                                                  0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x73, 0x08};
-        exposed::txMakeHeader(&serard, &metadata, &buffer);
+        exposed::txMakeHeader(node_id, &metadata, &buffer);
         REQUIRE(expected == buffer);
     }
 }
@@ -492,7 +419,7 @@ TEST_CASE("rxTryParseHeader")
         .allocate       = &serardAlloc,
         .deallocate     = &serardFree,
     };
-    struct Serard serard = serardInit(allocator, allocator);
+    struct SerardRx serard = serardInit(allocator, allocator);
 
     exposed::RxTransferModel out{};
 
@@ -556,7 +483,7 @@ TEST_CASE("serardRxAcceptInternal")
     // goes through the right transitions and validates,
     // then discards it as unimportant
     {
-        struct Serard serard              = serardInit(allocator, allocator);
+        struct SerardRx serard            = serardInit(allocator, allocator);
         serard.node_id                    = 4321;
         SerardReassembler     reassembler = serardReassemblerInit();
         SerardRxTransfer      out;
@@ -689,8 +616,8 @@ TEST_CASE("serardRxAcceptInternal")
 
     // try the same message again, but this time, subscribe to it
     {
-        struct Serard serard = serardInit(allocator, allocator);
-        serard.node_id       = 4321;
+        struct SerardRx serard = serardInit(allocator, allocator);
+        serard.node_id         = 4321;
 
         SerardRxSubscription sub;
         serardRxSubscribe(&serard, SerardTransferKindMessage, 1234, 16, 1000, &sub);

@@ -215,11 +215,12 @@ struct SerardMemoryResource
 /// The data_size is guaranteed to be in [1, 255] and the data pointer is guaranteed to be valid.
 /// The function may or may not be blocking -- the library doesn't care but it affects its API semantics.
 /// The return value shall be true on success; false aborts the transfer immediately.
-/// The lifetime of the pointed data ends after return from this function.
+/// The lifetime of the pointed data ends after return from this function. The data
+/// is externally managed; the function shall not attempt to free it.
 typedef bool (*SerardTxEmit)(void* user_reference, uint8_t data_size, const uint8_t* data);
 
 /// This is the core structure that keeps all of the states and allocated resources of the library instance.
-struct Serard
+struct SerardRx
 {
     /// User pointer that can link this instance with other objects.
     /// This field can be changed arbitrarily, the library does not access it after initialization.
@@ -272,8 +273,8 @@ struct SerardReassembler
 /// If any of the memory resource function pointers are NULL, the behavior is undefined.
 /// The instance does not hold any resources itself except for the allocated memory.
 /// The time complexity is constant. This function does not invoke the dynamic memory manager.
-struct Serard serardInit(const struct SerardMemoryResource memory_payload,
-                         const struct SerardMemoryResource memory_rx_session);
+struct SerardRx serardInit(const struct SerardMemoryResource memory_payload,
+                           const struct SerardMemoryResource memory_rx_session);
 
 /// Construct a new reassembler instance.
 /// An instance of the reassembler is required for each redundant transport interface
@@ -313,7 +314,7 @@ struct SerardReassembler serardReassemblerInit(void);
 ///
 /// The memory allocation requirement is one allocation of size (28 + payload_size + ceil((28 + payload_size) / 254)).
 /// Negative -- invalid argument; zero -- emitter failure; positive -- success.
-int8_t serardTxPush(struct Serard* const                       ins,
+int8_t serardTxPush(const SerardNodeID                         node_id,
                     const struct SerardTransferMetadata* const metadata,
                     const size_t                               payload_size,
                     const void* const                          payload,
@@ -324,7 +325,7 @@ int8_t serardTxPush(struct Serard* const                       ins,
 /// If inout_payload_size is greater than zero, the payload pointer shall be advanced by the negative payload size delta
 /// and the function shall be invoked again. This condition is guaranteed to never occur if the input payload size
 /// does not exceed 32 bytes.
-int8_t serardRxAccept(struct Serard* const                ins,
+int8_t serardRxAccept(struct SerardRx* const              ins,
                       struct SerardReassembler* const     reassembler,
                       const SerardMicrosecond             timestamp_usec,
                       size_t* const                       inout_payload_size,
@@ -358,7 +359,7 @@ int8_t serardRxAccept(struct Serard* const                ins,
 /// For the time complexity see serardRxUnsubscribe().
 /// This function does not allocate new memory. The function may deallocate memory if such subscription already
 /// existed; the deallocation behavior is specified in the documentation for serardRxUnsubscribe().
-int8_t serardRxSubscribe(struct Serard* const               ins,
+int8_t serardRxSubscribe(struct SerardRx* const             ins,
                          const enum SerardTransferKind      transfer_kind,
                          const SerardPortID                 port_id,
                          const size_t                       extent,
@@ -376,7 +377,7 @@ int8_t serardRxSubscribe(struct Serard* const               ins,
 /// The time complexity is O(log x + y), where x is the number of current subscriptions under the specified transfer
 /// kind, and y is the number of existing RX sessions for the selected subscription.
 /// This function does not allocate new memory.
-int8_t serardRxUnsubscribe(struct Serard* const          ins,
+int8_t serardRxUnsubscribe(struct SerardRx* const        ins,
                            const enum SerardTransferKind transfer_kind,
                            const SerardPortID            port_id);
 

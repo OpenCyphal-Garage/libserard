@@ -5,13 +5,13 @@
 #include "exposed.hpp"
 #include "serard.h"
 
-void* serardAlloc(void* const user_reference, const size_t size)
+static void* serardAlloc(void* const user_reference, const size_t size)
 {
     (void) user_reference;
     return malloc(size);
 }
 
-void serardFree(void* const user_reference, const size_t size, void* const pointer)
+static void serardFree(void* const user_reference, const size_t size, void* const pointer)
 {
     (void) user_reference;
     (void) size;
@@ -20,7 +20,7 @@ void serardFree(void* const user_reference, const size_t size, void* const point
 
 using buffer_t = std::vector<std::uint8_t>;
 
-bool serardEmitter(void* const user_reference, uint8_t data_size, const uint8_t* data)
+static bool serardEmitter(void* const user_reference, uint8_t data_size, const uint8_t* data)
 {
     REQUIRE(data_size > 0);
     REQUIRE(data != NULL);
@@ -33,15 +33,8 @@ bool serardEmitter(void* const user_reference, uint8_t data_size, const uint8_t*
 
 TEST_CASE("serardTxPush")
 {
-    struct SerardMemoryResource allocator = {
-        .user_reference = nullptr,
-        .allocate       = &serardAlloc,
-        .deallocate     = &serardFree,
-    };
-
     {
-        struct Serard serard = serardInit(allocator, allocator);
-        serard.node_id       = 4321;
+        const SerardNodeID node_id = 4321;
 
         // TODO: test rejection of illegal port ids
         struct SerardTransferMetadata metadata = {
@@ -54,7 +47,7 @@ TEST_CASE("serardTxPush")
 
         buffer_t    result_buffer;
         auto* const user_reference = reinterpret_cast<void*>(&result_buffer);
-        const auto  ret            = serardTxPush(&serard, &metadata, 0, nullptr, user_reference, &serardEmitter);
+        const auto  ret            = serardTxPush(node_id, &metadata, 0, nullptr, user_reference, &serardEmitter);
         REQUIRE(ret > 0);
 
         std::array<std::uint8_t, 31> expected = {0x00, 0x0d, 0x01, 0x06, 0xe1, 0x10, 0xd2, 0x04, 0xff, 0xc1, 0xba,
@@ -68,8 +61,7 @@ TEST_CASE("serardTxPush")
     }
 
     {
-        struct Serard serard = serardInit(allocator, allocator);
-        serard.node_id       = 1234;
+        const SerardNodeID node_id = 1234;
 
         struct SerardTransferMetadata metadata = {
             .priority       = SerardPriorityNominal,
@@ -83,7 +75,7 @@ TEST_CASE("serardTxPush")
         auto* const user_reference = reinterpret_cast<void*>(&result_buffer);
         // uavcan.primitive.String.1 containing string “012345678”
         std::array<std::uint8_t, 9> payload = {'0', '1', '2', '3', '4', '5', '6', '7', '8'};
-        serardTxPush(&serard, &metadata, payload.size(), payload.data(), user_reference, &serardEmitter);
+        serardTxPush(node_id, &metadata, payload.size(), payload.data(), user_reference, &serardEmitter);
 
         std::array<std::uint8_t, 40> expected = {0x00, 0x09, 0x01, 0x04, 0xd2, 0x04, 0xff, 0xff, 0xd2, 0x04,
                                                  0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
