@@ -126,28 +126,6 @@ TEST_CASE("cobsPush")
     }
 }
 
-TEST_CASE("cobsEncodingSize")
-{
-    REQUIRE(exposed::cobsEncodingSize(1U) == 2U);
-    for (std::size_t i = 2U; i <= 254; i++)
-    {
-        REQUIRE(exposed::cobsEncodingSize(i) == (i + 1U));
-    }
-    REQUIRE(exposed::cobsEncodingSize(255U) == (255U + 2U));
-
-    std::random_device                                       dev;
-    std::mt19937                                             rng(dev());
-    constexpr std::size_t                                    max = std::numeric_limits<std::uint32_t>::max();
-    std::uniform_int_distribution<std::mt19937::result_type> dist(1, max);
-
-    for (std::size_t i = 0; i < 1000; i++)
-    {
-        const auto rand     = dist(rng);
-        const auto overhead = static_cast<std::size_t>(std::ceil(static_cast<double>(rand) / 254.0));
-        REQUIRE(exposed::cobsEncodingSize(rand) == (rand + overhead));
-    }
-}
-
 // TODO: cobs decoding byte state machine (pull from kocherga?)
 
 TEST_CASE("cobsDecode")
@@ -756,7 +734,7 @@ TEST_CASE("serardRxAcceptInternal")
         REQUIRE(0U == inout_size);
         REQUIRE(out_sub == &sub);
         REQUIRE(payload.size() == reassembler.counter);
-        REQUIRE(payload.size() == out.payload_size);
+        REQUIRE((payload.size() - exposed::TRANSFER_CRC_SIZE_BYTES) == out.payload_size);
         for (std::size_t i = 0; i < payload.size(); i++)
         {
             INFO(i);

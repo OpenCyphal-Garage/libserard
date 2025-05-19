@@ -290,13 +290,6 @@ SERARD_PRIVATE bool cobsFlush(struct CobsEncoder* const encoder)
     return true;
 }
 
-SERARD_PRIVATE size_t cobsEncodingSize(size_t const payload_size)
-{
-    // COBS encoded frames are bounded by n + ceil(n / 254)
-    const size_t overhead = (payload_size + COBS_OVERHEAD_RATE - 1) / COBS_OVERHEAD_RATE;
-    return payload_size + overhead;
-}
-
 SERARD_PRIVATE enum CobsDecodeResult cobsDecodeByte(struct SerardReassembler* const reassembler,
                                                     uint8_t* const                  inout_byte)
 {
@@ -576,8 +569,11 @@ SERARD_PRIVATE int8_t rxTryValidateHeader(struct SerardRx* const          ins,
             // copy information into output transfer
             rxInitTransferMetadataFromModel(&model, &out_transfer->metadata);
 
-            const size_t payload_extent   = sub->extent + TRANSFER_CRC_SIZE_BYTES;
-            reassembler->max_payload_size = cobsEncodingSize(payload_extent);
+            // NOTE: currently the transfer header does not include any information
+            // about the payload size, so we allocate using the subscription extent.
+            // This is expected to be fixed in a future version of the protocol, see:
+            // https://github.com/OpenCyphal/specification/issues/143
+            reassembler->max_payload_size = sub->extent + TRANSFER_CRC_SIZE_BYTES;
             out_transfer->payload_extent  = reassembler->max_payload_size;
             SERARD_ASSERT(out_transfer->payload_extent > 0);
 
@@ -661,8 +657,7 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
         return 0;
     }
 
-    // TODO: do we need to discount the transfer crc size when outputting payload size?
-    transfer->payload_size   = payload_size;
+    transfer->payload_size   = payload_size - TRANSFER_CRC_SIZE_BYTES;
     transfer->timestamp_usec = timestamp_usec;
 
     if (metadata->remote_node_id <= SERARD_NODE_ID_MAX)
@@ -926,7 +921,7 @@ int8_t serardRxAccept(struct SerardRx* const              ins,
             }
             break;
         case STATE_PAYLOAD:
-            // there is no pre-determined header size, so we consume bytes
+            // there is no pre-determined payload size, so we consume bytes
             // until we discover a delimiter, or we hit the message extent
             // and bail to limit memory usage
             if (delim)

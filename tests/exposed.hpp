@@ -79,6 +79,8 @@ enum class CobsDecodeResult
 constexpr TransferCRC TRANSFER_CRC_INITIAL    = 0xFFFFFFFFUL;
 constexpr TransferCRC TRANSFER_CRC_OUTPUT_XOR = 0xFFFFFFFFUL;
 
+constexpr std::size_t TRANSFER_CRC_SIZE_BYTES = sizeof(TransferCRC);
+
 // Extern C effectively discards the outer namespaces.
 extern "C" {
 
@@ -87,13 +89,8 @@ extern "C" {
 [[nodiscard]] auto transferCRCAddByte(const TransferCRC crc, const std::uint8_t byte) -> TransferCRC;
 [[nodiscard]] auto transferCRCAdd(const TransferCRC crc, const std::size_t size, const void* const data) -> TransferCRC;
 
-void cobsPush(struct CobsEncoder* const encoder, std::uint8_t const byte);
-void cobsFlush(struct CobsEncoder* const encoder);
-// void               cobsEncodeIncremental(struct CobsEncoder* const encoder,
-//                                          std::size_t const         payload_size,
-//                                          const std::uint8_t* const payload,
-//                                          std::uint8_t* const       out_buffer);
-[[nodiscard]] auto cobsEncodingSize(std::size_t const payload) -> std::size_t;
+void               cobsPush(struct CobsEncoder* const encoder, std::uint8_t const byte);
+void               cobsFlush(struct CobsEncoder* const encoder);
 [[nodiscard]] auto cobsDecodeByte(struct SerardReassembler* const reassembler,
                                   uint8_t* const                  inout_byte) -> CobsDecodeResult;
 
