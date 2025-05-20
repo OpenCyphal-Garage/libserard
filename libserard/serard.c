@@ -1,6 +1,5 @@
 /// This software is distributed under the terms of the MIT License.
-/// Copyright (c) 2022-2025 OpenCyphal.
-/// Author: Pavel Kirienko <pavel@opencyphal.org>
+/// Copyright (c) OpenCyphal.
 /// Author: Kalyan Sriram <coder.kalyan@gmail.com>
 
 #include "serard.h"

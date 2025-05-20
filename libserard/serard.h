@@ -10,8 +10,9 @@
 /// --------------------------------------------------------------------------------------------------------------------
 ///
 /// This software is distributed under the terms of the MIT License.
-/// Copyright (c) 2022 OpenCyphal.
+/// Copyright (c) OpenCyphal.
 /// Author: Pavel Kirienko <pavel@opencyphal.org>
+/// Author: Kalyan Sriram <coder.kalyan@gmail.com>
 
 #pragma once
 

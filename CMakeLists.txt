@@ -1,8 +1,7 @@
 # This file is part of the library test suite and is not to be used in production.
 # For production use please add libserard/serard.c to your build system directly.
 # This software is distributed under the terms of the MIT License.
-# Copyright (c) 2022 OpenCyphal.
-# Author: Pavel Kirienko <pavel@opencyphal.org>
+# Copyright (c) OpenCyphal.
 
 cmake_minimum_required(VERSION 3.20)
 project(serard_tests C CXX)
