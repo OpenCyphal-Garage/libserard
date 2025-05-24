@@ -3,11 +3,9 @@
 /// Author: Kalyan Sriram <coder.kalyan@gmail.com>
 
 #include "serard.h"
-#include "_serard_cavl.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include <sys/types.h>
 #include <stdio.h>
 
 // --------------------------------------------- BUILD CONFIGURATION ---------------------------------------------
@@ -41,8 +39,12 @@
 
 // --------------------------------------------- COMMON DEFINITIONS ---------------------------------------------
 
+#define CAVL2_RELATION int8_t
+#define CAVL2_T        struct SerardTreeNode
+#include "cavl2.h"
+
 #define BITS_PER_BYTE 8U
-#define BYTE_MAX 0xFFU
+#define BYTE_MAX      0xFFU
 
 #define BYTE0_OFFSET 0U
 #define BYTE1_OFFSET 8U
@@ -54,34 +56,29 @@
 #define BYTE7_OFFSET 56U
 
 #define HEADER_CRC_SIZE_BYTES 2U
-#define HEADER_SIZE_NO_CRC 22U
-#define HEADER_SIZE (HEADER_SIZE_NO_CRC + HEADER_CRC_SIZE_BYTES)
-#define HEADER_VERSION 1U
-#define HEADER_USER_DATA 0U
+#define HEADER_SIZE_NO_CRC    22U
+#define HEADER_SIZE           (HEADER_SIZE_NO_CRC + HEADER_CRC_SIZE_BYTES)
+#define HEADER_VERSION        1U
+#define HEADER_USER_DATA      0U
 
-#define HEADER_OFFSET_VERSION 0U
-#define HEADER_OFFSET_PRIORITY 1U
-#define HEADER_OFFSET_SOURCE_ID 2U
-#define HEADER_OFFSET_DEST_ID 4U
+#define HEADER_OFFSET_VERSION        0U
+#define HEADER_OFFSET_PRIORITY       1U
+#define HEADER_OFFSET_SOURCE_ID      2U
+#define HEADER_OFFSET_DEST_ID        4U
 #define HEADER_OFFSET_DATA_SPECIFIER 6U
-#define HEADER_OFFSET_TRANSFER_ID 8U
-#define HEADER_OFFSET_FRAME_INDEX 16U
-#define HEADER_OFFSET_USER_DATA 20U
-#define HEADER_OFFSET_CRC 22U
+#define HEADER_OFFSET_TRANSFER_ID    8U
+#define HEADER_OFFSET_FRAME_INDEX    16U
+#define HEADER_OFFSET_USER_DATA      20U
+#define HEADER_OFFSET_CRC            22U
 
-#define COBS_OVERHEAD_RATE 254U
+#define COBS_OVERHEAD_RATE   254U
 #define COBS_FRAME_DELIMITER 0U
 
 #define DATA_SPECIFIER_PORT_MASK 0x3FFFU
-#define SERVICE_NOT_MESSAGE 0x8000U
-#define REQUEST_NOT_RESPONSE 0x4000U
-#define FRAME_INDEX 0U
-#define END_OF_TRANSFER (1U << 31U)
-
-SERARD_PRIVATE struct SerardTreeNode* avlTrivialFactory(void* const user_reference)
-{
-    return (struct SerardTreeNode*) user_reference;
-}
+#define SERVICE_NOT_MESSAGE      0x8000U
+#define REQUEST_NOT_RESPONSE     0x4000U
+#define FRAME_INDEX              0U
+#define END_OF_TRANSFER          (1U << 31U)
 
 // --------------------------------------------- HEADER CRC ---------------------------------------------
 
@@ -137,11 +134,11 @@ SERARD_PRIVATE HeaderCRC headerCRCAdd(const HeaderCRC crc, const size_t size, co
 
 typedef uint32_t TransferCRC;
 
-#define TRANSFER_CRC_INITIAL 0xFFFFFFFFUL
-#define TRANSFER_CRC_OUTPUT_XOR 0xFFFFFFFFUL
+#define TRANSFER_CRC_INITIAL                   0xFFFFFFFFUL
+#define TRANSFER_CRC_OUTPUT_XOR                0xFFFFFFFFUL
 #define TRANSFER_CRC_RESIDUE_BEFORE_OUTPUT_XOR 0xB798B438UL
-#define TRANSFER_CRC_RESIDUE_AFTER_OUTPUT_XOR (TRANSFER_CRC_RESIDUE_BEFORE_OUTPUT_XOR ^ TRANSFER_CRC_OUTPUT_XOR)
-#define TRANSFER_CRC_SIZE_BYTES 4U
+#define TRANSFER_CRC_RESIDUE_AFTER_OUTPUT_XOR  (TRANSFER_CRC_RESIDUE_BEFORE_OUTPUT_XOR ^ TRANSFER_CRC_OUTPUT_XOR)
+#define TRANSFER_CRC_SIZE_BYTES                4U
 
 SERARD_PRIVATE TransferCRC transferCRCAddByte(const TransferCRC crc, const uint8_t byte)
 {
@@ -233,10 +230,10 @@ struct CobsEncoder
     uint8_t            fifo[256];
 };
 
-#define STATE_REJECT 0U
+#define STATE_REJECT    0U
 #define STATE_DELIMITER 1U
-#define STATE_HEADER 2U
-#define STATE_PAYLOAD 3U
+#define STATE_HEADER    2U
+#define STATE_PAYLOAD   3U
 
 enum CobsDecodeResult
 {
@@ -449,7 +446,7 @@ SERARD_PRIVATE void rxInitTransferMetadataFromModel(const struct RxTransferModel
 
 // TODO: test this
 SERARD_PRIVATE int8_t
-rxSubscriptionPredicateOnSession(void* const user_reference,  // NOSONAR Cavl API requires pointer to non-const.
+rxSubscriptionPredicateOnSession(const void* const user_reference,  // NOSONAR Cavl API requires pointer to non-const.
                                  const struct SerardTreeNode* const node)
 {
     const SerardNodeID  sought    = *((const SerardNodeID*) user_reference);
@@ -460,7 +457,7 @@ rxSubscriptionPredicateOnSession(void* const user_reference,  // NOSONAR Cavl AP
 }
 
 SERARD_PRIVATE int8_t
-rxSubscriptionPredicateOnPortID(void* const user_reference,  // NOSONAR Cavl API requires pointer to non-const.
+rxSubscriptionPredicateOnPortID(const void* const user_reference,  // NOSONAR Cavl API requires pointer to non-const.
                                 const struct SerardTreeNode* const node)
 {
     const SerardPortID  sought    = *((const SerardPortID*) user_reference);
@@ -468,13 +465,6 @@ rxSubscriptionPredicateOnPortID(void* const user_reference,  // NOSONAR Cavl API
     static const int8_t NegPos[2] = {-1, +1};
     // Clang-Tidy mistakenly identifies a narrowing cast to int8_t here, which is incorrect.
     return (sought == other) ? 0 : NegPos[sought > other];  // NOLINT no narrowing conversion is taking place here
-}
-
-SERARD_PRIVATE int8_t
-rxSubscriptionPredicateOnStruct(void* const user_reference,  // NOSONAR Cavl API requires pointer to non-const.
-                                const struct SerardTreeNode* const node)
-{
-    return rxSubscriptionPredicateOnPortID(&((struct SerardRxSubscription*) user_reference)->port_id, node);
 }
 
 // Returns truth if the frame is valid and parsed successfully.
@@ -550,10 +540,9 @@ SERARD_PRIVATE int8_t rxTryValidateHeader(struct SerardRx* const          ins,
         if ((model.destination_node_id == SERARD_NODE_ID_UNSET) || (model.destination_node_id == ins->node_id))
         {
             struct SerardRxSubscription* const sub = (struct SerardRxSubscription*) (void*)
-                cavlSearch((struct SerardTreeNode**) &ins->rx_subscriptions[(size_t) model.transfer_kind],
+                cavl2_find((struct SerardTreeNode*) ins->rx_subscriptions[(size_t) model.transfer_kind],
                            &model.port_id,
-                           &rxSubscriptionPredicateOnPortID,
-                           NULL);
+                           &rxSubscriptionPredicateOnPortID);
 
             // no subscription to this message, discard
             if (sub == NULL)
@@ -662,10 +651,9 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
     if (metadata->remote_node_id <= SERARD_NODE_ID_MAX)
     {
         struct SerardInternalRxSession* rxs =
-            (struct SerardInternalRxSession*) cavlSearch((struct SerardTreeNode**) &subscription->sessions,
+            (struct SerardInternalRxSession*) cavl2_find((struct SerardTreeNode*) subscription->sessions,
                                                          (void*) &metadata->remote_node_id,
-                                                         &rxSubscriptionPredicateOnSession,
-                                                         NULL);
+                                                         &rxSubscriptionPredicateOnSession);
 
         if (rxs == NULL)
         {
@@ -679,10 +667,9 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
                 rxs->transfer_id             = metadata->transfer_id;
                 rxs->redundant_iface_index   = redundant_transport_index;
 
-                SERARD_UNUSED(cavlSearch((struct SerardTreeNode**) &subscription->sessions,
+                SERARD_UNUSED(cavl2_find((struct SerardTreeNode*) subscription->sessions,
                                          (void*) &metadata->remote_node_id,
-                                         &rxSubscriptionPredicateOnSession,
-                                         NULL));
+                                         &rxSubscriptionPredicateOnSession));
                 rxSessionUpdate(ins,
                                 rxs,
                                 transfer,
@@ -979,10 +966,12 @@ int8_t serardRxSubscribe(struct SerardRx* const             ins,
             out_subscription->transfer_id_timeout_usec = transfer_id_timeout_usec;
             out_subscription->sessions                 = NULL;
 
-            const struct SerardTreeNode* const node = cavlSearch((struct SerardTreeNode**) &ins->rx_subscriptions[tk],
-                                                                 out_subscription,
-                                                                 &rxSubscriptionPredicateOnStruct,
-                                                                 &avlTrivialFactory);
+            const struct SerardTreeNode* const node =
+                cavl2_find_or_insert((struct SerardTreeNode**) &ins->rx_subscriptions[tk],
+                                     &port_id,
+                                     &rxSubscriptionPredicateOnPortID,
+                                     &out_subscription->base,
+                                     &cavl2_trivial_factory);
             SERARD_ASSERT(node == &out_subscription->base);
             out = (out > 0) ? 0 : 1;
         }
@@ -1001,20 +990,19 @@ int8_t serardRxUnsubscribe(struct SerardRx* const        ins,
     {
         SerardPortID                       port_id_mutable = port_id;
         struct SerardRxSubscription* const sub =
-            (struct SerardRxSubscription*) (void*) cavlSearch((struct SerardTreeNode**) &ins->rx_subscriptions[tk],
+            (struct SerardRxSubscription*) (void*) cavl2_find((struct SerardTreeNode*) ins->rx_subscriptions[tk],
                                                               &port_id_mutable,
-                                                              &rxSubscriptionPredicateOnPortID,
-                                                              NULL);
+                                                              &rxSubscriptionPredicateOnPortID);
         if (sub != NULL)
         {
-            cavlRemove((struct SerardTreeNode**) &ins->rx_subscriptions[tk], &sub->base);
+            cavl2_remove((struct SerardTreeNode**) &ins->rx_subscriptions[tk], &sub->base);
             SERARD_ASSERT(sub->port_id == port_id);
             ret = 1;
             // TODO: we should be doing this in O(n), not O(n log n), and without unecessary rotation
             while (sub->sessions != NULL)
             {
-                cavlRemove((struct SerardTreeNode**) &ins->rx_subscriptions[tk],
-                           (struct SerardTreeNode*) ins->rx_subscriptions[tk]);
+                cavl2_remove((struct SerardTreeNode**) &ins->rx_subscriptions[tk],
+                             (struct SerardTreeNode*) ins->rx_subscriptions[tk]);
             }
         }
         else

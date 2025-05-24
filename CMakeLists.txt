@@ -11,6 +11,7 @@ set(CTEST_OUTPUT_ON_FAILURE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(library_dir "${CMAKE_SOURCE_DIR}/libserard")
 set(tests_dir   "${CMAKE_SOURCE_DIR}/tests")
+set(deps_dir   "${CMAKE_SOURCE_DIR}/lib")
 
 # Use -DNO_STATIC_ANALYSIS=1 to suppress static analysis.
 # If not suppressed, the tools used here shall be available, otherwise the build will fail.
@@ -44,7 +45,7 @@ add_compile_options(
 )
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Woverloaded-virtual -Wnon-virtual-dtor -Wsign-promo")
 
-include_directories(${tests_dir}/catch ${library_dir})
+include_directories(${tests_dir}/catch ${library_dir} ${deps_dir})
 add_definitions(-DCATCH_CONFIG_FAST_COMPILE=1 -DCATCH_CONFIG_ENABLE_ALL_STRINGMAKERS=1)
 
 set(common_sources ${tests_dir}/catch/main.cpp ${library_dir}/serard.c)
