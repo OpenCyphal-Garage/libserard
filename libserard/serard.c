@@ -81,6 +81,8 @@
 #define FRAME_INDEX              0U
 #define END_OF_TRANSFER          (1U << 31U)
 
+#define TRANSFER_ID_DELTA 1000000U
+
 // --------------------------------------------- HEADER CRC ---------------------------------------------
 
 typedef uint16_t HeaderCRC;
@@ -196,6 +198,8 @@ SERARD_PRIVATE TransferCRC transferCRCAdd(const uint32_t crc, const size_t size,
 
 /// The memory requirement model provided in the documentation assumes that the maximum size of this structure never
 /// exceeds 56 bytes on any conventional platform.
+/// FIXME: not true anymore
+///
 /// A user that needs a detailed analysis of the worst-case memory consumption may compute the size of this structure
 /// for the particular platform at hand manually or by evaluating its sizeof().
 /// The fields are ordered to minimize the amount of padding on all conventional platforms.
@@ -206,7 +210,6 @@ struct SerardInternalRxSession
     SerardMicrosecond transfer_timestamp_usec;  ///< Used to validate transfer delay against restart timeout.
     SerardTransferID  transfer_id;              ///< Used to deduplicate transfers on redundant or unreliable networks.
     SerardNodeID      source_node_id;           ///< Sessions are maintained per unique remote node (ID).
-    uint8_t           redundant_iface_index;    ///< Arbitrary value in [0, 255].
 };
 
 // --------------------------------------------- COBS ---------------------------------------------
@@ -588,10 +591,9 @@ SERARD_PRIVATE int8_t rxValidateHeader(struct SerardRx* const          ins,
 /// are given and the particular algorithms are left to be implementation-defined. Such abstract approach is much
 /// advantageous because it allows implementers to choose whatever solution works best for the specific application at
 /// hand, while the wire compatibility is still guaranteed by the high-level requirements given in the specification.
-SERARD_PRIVATE void rxSessionUpdate(struct SerardRx* const                ins,
+SERARD_PRIVATE bool rxSessionUpdate(struct SerardRx* const                ins,
                                     struct SerardInternalRxSession* const rxs,
                                     const struct SerardRxTransfer* const  transfer,
-                                    const uint8_t                         redundant_iface_index,
                                     const SerardMicrosecond               transfer_id_timeout_usec)
 {
     SERARD_ASSERT(ins != NULL);
@@ -600,19 +602,23 @@ SERARD_PRIVATE void rxSessionUpdate(struct SerardRx* const                ins,
 
     const struct SerardTransferMetadata* metadata = &transfer->metadata;
 
+    // Accept the transfer if the new transfer ID is greater than the previous.
+    const bool tid_future = metadata->transfer_id > rxs->transfer_id;
+
+    // Accept (and restart the session) on transfer ID timeout.
     const bool tid_timed_out = (transfer->timestamp_usec > rxs->transfer_timestamp_usec) &&
                                ((transfer->timestamp_usec - rxs->transfer_timestamp_usec) > transfer_id_timeout_usec);
 
-    // The monotonic 64 bit transfer ID in UAVCAN/Serial shall not wrap.
-    const bool not_monotonic = (metadata->transfer_id - rxs->transfer_id) > 1;
+    // Accept if the transfer ID is at least TRANSFER_ID_DELTA counts less than
+    // the previous one. This is used to hot-start the rx pipeline after a reboot.
+    const bool wrap = !tid_future && ((rxs->transfer_id - metadata->transfer_id) >= TRANSFER_ID_DELTA);
 
-    const bool need_restart = tid_timed_out || ((rxs->redundant_iface_index == redundant_iface_index) && not_monotonic);
-
-    if (need_restart)
+    if (tid_timed_out)
     {
-        rxs->transfer_id           = metadata->transfer_id;
-        rxs->redundant_iface_index = redundant_iface_index;
+        rxs->transfer_id = metadata->transfer_id;
     }
+
+    return tid_future || tid_timed_out || wrap;
 }
 
 // TODO: test this
@@ -633,15 +639,12 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
     TransferCRC  payload_crc  = TRANSFER_CRC_INITIAL;
     payload_crc               = transferCRCAdd(payload_crc, payload_size, transfer->payload);
     payload_crc               = payload_crc ^ TRANSFER_CRC_OUTPUT_XOR;
-    const bool valid          = payload_crc == TRANSFER_CRC_RESIDUE_AFTER_OUTPUT_XOR;
+    bool valid                = payload_crc == TRANSFER_CRC_RESIDUE_AFTER_OUTPUT_XOR;
 
-    if (!valid)
-    {
-        return 0;
-    }
-
+    // The CRC is counted in the bytes received but not in the user payload.
     transfer->payload_size = payload_size - TRANSFER_CRC_SIZE_BYTES;
 
+    int8_t ret = 0;
     if (metadata->remote_node_id <= SERARD_NODE_ID_MAX)
     {
         struct SerardInternalRxSession* rxs =
@@ -651,27 +654,29 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
 
         if (rxs == NULL)
         {
-            rxs = (struct SerardInternalRxSession*) ins->memory_rx_session
-                      .allocate(ins->memory_rx_session.user_reference, sizeof(struct SerardInternalRxSession));
-
+            rxs = ins->memory_rx_session.allocate(ins->memory_rx_session.user_reference,
+                                                  sizeof(struct SerardInternalRxSession));
             if (rxs != NULL)
             {
                 rxs->transfer_timestamp_usec = transfer->timestamp_usec;
                 rxs->source_node_id          = metadata->remote_node_id;
                 rxs->transfer_id             = metadata->transfer_id;
-                rxs->redundant_iface_index   = redundant_iface_index;
-
-                SERARD_UNUSED(cavl2_find((struct SerardTreeNode*) subscription->sessions,
-                                         (void*) &metadata->remote_node_id,
-                                         &rxSubscriptionPredicateOnSession));
-                rxSessionUpdate(ins, rxs, transfer, redundant_iface_index, subscription->transfer_id_timeout_usec);
-
-                return 1;
+                struct SerardTreeNode* node  = cavl2_find_or_insert((struct SerardTreeNode**) &subscription->sessions,
+                                                                   (void*) &metadata->remote_node_id,
+                                                                   &rxSubscriptionPredicateOnSession,
+                                                                   rxs,
+                                                                   &cavl2_trivial_factory);
+                ret                          = 1;
             }
             else
             {
-                return -SERARD_ERROR_MEMORY;
+                ret = -SERARD_ERROR_MEMORY;
             }
+        }
+        else
+        {
+            valid = valid && rxSessionUpdate(ins, rxs, transfer, subscription->transfer_id_timeout_usec);
+            ret   = valid ? 1 : 0;
         }
     }
     else
@@ -679,10 +684,10 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
         SERARD_ASSERT(metadata->remote_node_id == SERARD_NODE_ID_UNSET);
         // Anonymous transfers are stateless. No need to update the state machine,
         // just blindly accept it.
-        return 1;
+        ret = 1;
     }
 
-    return 1;
+    return ret;
 }
 
 SERARD_PRIVATE int8_t rxAcceptByte(struct SerardRx* const          ins,
