@@ -27,7 +27,6 @@ struct RxSession
     SerardMicrosecond transfer_timestamp_usec = std::numeric_limits<std::uint64_t>::max();
     SerardTransferID  transfer_id             = std::numeric_limits<std::uint8_t>::max();
     SerardNodeID      source_node_id          = 0U;
-    std::uint8_t      redundant_iface_index   = std::numeric_limits<std::uint8_t>::max();
 };
 
 struct CobsEncoder
@@ -91,17 +90,14 @@ auto               txMakeHeader(const SerardNodeID                         node_
 auto               rxSessionUpdate(struct SerardRx* const                ins,
                                    struct SerardInternalRxSession* const rxs,
                                    const struct SerardRxTransfer* const  transfer,
-                                   const std::uint8_t                    redundant_iface_index,
                                    const SerardMicrosecond               transfer_id_timeout_usec) -> void;
 [[nodiscard]] auto rxAcceptTransfer(struct SerardRx* const          ins,
                                     struct SerardReassembler* const reassembler,
-                                    struct SerardRxTransfer* const  transfer,
-                                    const std::uint8_t              redundant_iface_index) -> std::int8_t;
+                                    struct SerardRxTransfer* const  transfer) -> std::int8_t;
 [[nodiscard]] auto rxAcceptByte(struct SerardRx* const          ins,
                                 struct SerardReassembler* const reassembler,
                                 const SerardMicrosecond         timestamp_usec,
                                 const std::uint8_t              payload_byte,
-                                const std::uint8_t              redundant_iface_index,
                                 struct SerardRxTransfer* const  out_transfer) -> std::int8_t;
 }
 }  // namespace exposed

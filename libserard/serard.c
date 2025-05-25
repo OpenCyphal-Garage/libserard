@@ -689,7 +689,6 @@ SERARD_PRIVATE int8_t rxAcceptByte(struct SerardRx* const          ins,
                                    struct SerardReassembler* const reassembler,
                                    const SerardMicrosecond         timestamp_usec,
                                    const uint8_t                   payload_byte,
-                                   const uint8_t                   redundant_iface_index,
                                    struct SerardRxTransfer* const  out_transfer)
 {
     int8_t                      ret           = 0;
@@ -709,7 +708,6 @@ SERARD_PRIVATE int8_t rxAcceptByte(struct SerardRx* const          ins,
         {
             // if the state machine is accepting the payload, try to accept
             // the received transfer payload and return to the user
-            // FIXME: what is the redundant interface index for?
             ret = rxAcceptTransfer(ins, reassembler, out_transfer);
             if (ret == 1)
             {
@@ -934,7 +932,6 @@ int8_t serardRxAccept(struct SerardRx* const              ins,
                       SerardMicrosecond const             timestamp_usec,
                       size_t* const                       inout_payload_size,
                       const uint8_t* const                payload,
-                      const uint8_t                       redundant_transport_index,
                       struct SerardRxTransfer* const      out_transfer,
                       struct SerardRxSubscription** const out_subscription)
 {
@@ -945,8 +942,7 @@ int8_t serardRxAccept(struct SerardRx* const              ins,
     for (size_t i = 0; i < in_payload_size; i++)
     {
         const uint8_t payload_byte = payload[i];
-        const int8_t  out =
-            rxAcceptByte(ins, reassembler, timestamp_usec, payload_byte, redundant_transport_index, out_transfer);
+        const int8_t  out          = rxAcceptByte(ins, reassembler, timestamp_usec, payload_byte, out_transfer);
         if (out != 0)
         {
             if (out < 0)

@@ -562,7 +562,7 @@ TEST_CASE("rxValidateHeader")
         const std::array<std::uint8_t, 24> buffer      = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0,
                                                           0xBA, 0xB0, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00,
                                                           0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        std::copy(buffer.begin(), buffer.end(), reassembler.header);
+        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
         reassembler.counter = buffer.size() - 1;
 
         struct SerardRxTransfer transfer = {};
@@ -585,7 +585,7 @@ TEST_CASE("rxValidateHeader")
         const std::array<std::uint8_t, 24> buffer      = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0,
                                                           0xBA, 0xB0, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00,
                                                           0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        std::copy(buffer.begin(), buffer.end(), reassembler.header);
+        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
         reassembler.counter = buffer.size() - 1;
 
         struct SerardRxTransfer transfer = {};

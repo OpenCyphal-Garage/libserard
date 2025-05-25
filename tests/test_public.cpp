@@ -117,7 +117,7 @@ TEST_CASE("serardRxAccept")
     size_t                payload_size = buffer.size();
     SerardRxTransfer      out          = {};
     SerardRxSubscription* out_sub      = nullptr;
-    const int8_t          ret = serardRxAccept(&ins, &reassembler, 0, &payload_size, buffer.data(), 0, &out, &out_sub);
+    const int8_t          ret = serardRxAccept(&ins, &reassembler, 0, &payload_size, buffer.data(), &out, &out_sub);
     REQUIRE(ret == 1);
 
     // struct SerardTransferMetadata metadata = {

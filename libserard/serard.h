@@ -351,7 +351,6 @@ int8_t serardRxAccept(struct SerardRx* const              ins,
                       const SerardMicrosecond             timestamp_usec,
                       size_t* const                       inout_payload_size,
                       const uint8_t* const                payload,
-                      const uint8_t                       redundant_transport_index,
                       struct SerardRxTransfer* const      out_transfer,
                       struct SerardRxSubscription** const out_subscription);
 
