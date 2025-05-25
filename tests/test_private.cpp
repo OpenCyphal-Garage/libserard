@@ -293,27 +293,6 @@ TEST_CASE("hostToLittle")
     }
 }
 
-TEST_CASE("littleToHost")
-{
-    {
-        std::array<std::uint8_t, 2> buffer = {0x02, 0x01};
-        const auto                  ret    = exposed::littleToHost16(buffer.data());
-        REQUIRE(0x0102 == ret);
-    }
-
-    {
-        std::array<std::uint8_t, 4> buffer = {0x04, 0x03, 0x02, 0x01};
-        const auto                  ret    = exposed::littleToHost32(buffer.data());
-        REQUIRE(0x01020304 == ret);
-    }
-
-    {
-        std::array<std::uint8_t, 8> buffer = {0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01};
-        const auto                  ret    = exposed::littleToHost64(buffer.data());
-        REQUIRE(0x0102030405060708 == ret);
-    }
-}
-
 TEST_CASE("txMakeSessionSpecifier")
 {
     REQUIRE(0x0afe == exposed::txMakeSessionSpecifier(SerardTransferKindMessage, 0xafe));
@@ -402,15 +381,25 @@ auto serardFailingAlloc(void* const user_reference, const size_t size) -> void*
     return nullptr;
 }
 
-TEST_CASE("rxTryParseHeader")
+TEST_CASE("rxAcceptHeaderByte")
 {
+    const auto parse = [](const auto& buffer) -> std::tuple<bool, SerardNodeID, SerardTransferMetadata> {
+        struct SerardReassembler reassembler = serardReassemblerInit();
+        bool                     valid       = true;
+        for (size_t i = 0; i < buffer.size(); i++)
+        {
+            const auto byte = buffer[i];
+            valid           = valid && exposed::rxAcceptHeaderByte(byte, i, &reassembler);
+        }
+
+        return {valid, reassembler.destination_node_id, reassembler.metadata};
+    };
+
     {
         /// Valid message transfer.
-        SerardTransferMetadata       metadata            = {};
-        SerardNodeID                 destination_node_id = 0;
         std::array<std::uint8_t, 24> buffer = {0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x04, 0x00, 0x00, 0x00, 0x00,
                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6};
-        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        const auto [valid, destination_node_id, metadata] = parse(buffer);
         REQUIRE(valid);
         REQUIRE(metadata.transfer_id == 0);
         REQUIRE(metadata.transfer_kind == SerardTransferKindMessage);
@@ -422,11 +411,9 @@ TEST_CASE("rxTryParseHeader")
 
     {
         /// Valid response transfer.
-        SerardTransferMetadata       metadata            = {};
-        SerardNodeID                 destination_node_id = 0;
         std::array<std::uint8_t, 24> buffer = {0x01, 0x01, 0xD2, 0x04, 0xE1, 0x10, 0x7B, 0x80, 0x00, 0x00, 0x00, 0x00,
                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xC0, 0xFF};
-        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        const auto [valid, destination_node_id, metadata] = parse(buffer);
         REQUIRE(valid);
         REQUIRE(metadata.transfer_id == 0);
         REQUIRE(metadata.transfer_kind == SerardTransferKindResponse);
@@ -438,11 +425,9 @@ TEST_CASE("rxTryParseHeader")
 
     {
         /// Valid request transfer.
-        SerardTransferMetadata       metadata            = {};
-        SerardNodeID                 destination_node_id = 0;
         std::array<std::uint8_t, 24> buffer = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        const auto [valid, destination_node_id, metadata] = parse(buffer);
         REQUIRE(valid);
         REQUIRE(metadata.transfer_id == 0xCAFEB0BAUL);
         REQUIRE(metadata.transfer_kind == SerardTransferKindRequest);
@@ -454,61 +439,49 @@ TEST_CASE("rxTryParseHeader")
 
     {
         /// Invalid header version.
-        SerardTransferMetadata       metadata            = {};
-        SerardNodeID                 destination_node_id = 0;
         std::array<std::uint8_t, 24> buffer = {0x02, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        const auto [valid, destination_node_id, metadata] = parse(buffer);
         REQUIRE(!valid);
     }
 
     {
         /// Invalid transfer priority.
-        SerardTransferMetadata       metadata            = {};
-        SerardNodeID                 destination_node_id = 0;
         std::array<std::uint8_t, 24> buffer = {0x01, 0x0F, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        const auto [valid, destination_node_id, metadata] = parse(buffer);
         REQUIRE(!valid);
     }
 
     {
         /// Message transfer with request not response bit set.
-        SerardTransferMetadata       metadata            = {};
-        SerardNodeID                 destination_node_id = 0;
         std::array<std::uint8_t, 24> buffer = {0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x44, 0x00, 0x00, 0x00, 0x00,
                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6};
-        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        const auto [valid, destination_node_id, metadata] = parse(buffer);
         REQUIRE(!valid);
     }
 
     {
         /// Invalid frame index.
-        SerardTransferMetadata       metadata            = {};
-        SerardNodeID                 destination_node_id = 0;
         std::array<std::uint8_t, 24> buffer = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
                                                0x00, 0x00, 0x00, 0x00, 0xCA, 0xFE, 0xCA, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        const auto [valid, destination_node_id, metadata] = parse(buffer);
         REQUIRE(!valid);
     }
 
     {
         /// Transfer with end of transfer bit not set.
-        SerardTransferMetadata       metadata            = {};
-        SerardNodeID                 destination_node_id = 0;
         std::array<std::uint8_t, 24> buffer = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xDB, 0x89};
-        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        const auto [valid, destination_node_id, metadata] = parse(buffer);
         REQUIRE(!valid);
     }
 
     {
         /// Transfer with invalid CRC.
-        SerardTransferMetadata       metadata            = {};
-        SerardNodeID                 destination_node_id = 0;
         std::array<std::uint8_t, 24> buffer = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xD3, 0x89};
-        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        const auto [valid, destination_node_id, metadata] = parse(buffer);
         REQUIRE(!valid);
     }
 }
@@ -533,22 +506,17 @@ TEST_CASE("rxValidateHeader")
         struct SerardRxSubscription subscription = {};
         serardRxSubscribe(&ins, SerardTransferKindMessage, 1234, 64, 100, &subscription);
 
-        struct SerardReassembler           reassembler = serardReassemblerInit();
-        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x04, 0xD2, 0x04, 0xFF, 0xFF, 0xD2, 0x04,
-                                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x08, 0x12};
-        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
-        reassembler.counter = buffer.size() - 1;
+        struct SerardReassembler reassembler = serardReassemblerInit();
+        reassembler.metadata.transfer_id     = 0;
+        reassembler.metadata.transfer_kind   = SerardTransferKindMessage;
+        reassembler.metadata.remote_node_id  = 1234;
+        reassembler.metadata.port_id         = 1234;
+        reassembler.metadata.priority        = SerardPriorityNominal;
+        reassembler.destination_node_id      = SERARD_NODE_ID_UNSET;
+        reassembler.counter                  = exposed::HEADER_SIZE - 1;
 
-        struct SerardRxTransfer transfer = {};
-        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = reassembler.metadata;
+        const int8_t out = exposed::rxValidateHeader(&ins, &reassembler);
         REQUIRE(out == 1);
-        REQUIRE(metadata.transfer_id == 0);
-        REQUIRE(metadata.transfer_kind == SerardTransferKindMessage);
-        REQUIRE(metadata.remote_node_id == 1234);
-        REQUIRE(metadata.port_id == 1234);
-        REQUIRE(metadata.priority == SerardPriorityNominal);
     }
 
     {
@@ -558,80 +526,53 @@ TEST_CASE("rxValidateHeader")
         struct SerardRxSubscription subscription = {};
         serardRxSubscribe(&ins, SerardTransferKindRequest, 234, 64, 100, &subscription);
 
-        struct SerardReassembler           reassembler = serardReassemblerInit();
-        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0,
-                                                          0xBA, 0xB0, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00,
-                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
-        reassembler.counter = buffer.size() - 1;
+        struct SerardReassembler reassembler = serardReassemblerInit();
+        reassembler.metadata.transfer_id     = 0xCAFEB0BAUL;
+        reassembler.metadata.transfer_kind   = SerardTransferKindRequest;
+        reassembler.metadata.remote_node_id  = 1234;
+        reassembler.metadata.port_id         = 234;
+        reassembler.metadata.priority        = SerardPriorityOptional;
+        reassembler.destination_node_id      = 4321;
+        reassembler.counter                  = exposed::HEADER_SIZE - 1;
 
-        struct SerardRxTransfer transfer = {};
-        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = reassembler.metadata;
+        const int8_t out = exposed::rxValidateHeader(&ins, &reassembler);
         REQUIRE(out == 1);
-        REQUIRE(metadata.transfer_id == 0xCAFEB0BAUL);
-        REQUIRE(metadata.transfer_kind == SerardTransferKindRequest);
-        REQUIRE(metadata.remote_node_id == 1234);
-        REQUIRE(metadata.port_id == 234);
-        REQUIRE(metadata.priority == SerardPriorityOptional);
     }
 
     {
         // Valid service transfer addressed to a different node.
-        struct SerardRx ins = serardRxInit(allocator, allocator);
-        ins.node_id         = 1234;
+        struct SerardRx ins                      = serardRxInit(allocator, allocator);
+        ins.node_id                              = 1235;
+        struct SerardRxSubscription subscription = {};
+        serardRxSubscribe(&ins, SerardTransferKindRequest, 234, 64, 100, &subscription);
 
-        struct SerardReassembler           reassembler = serardReassemblerInit();
-        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0,
-                                                          0xBA, 0xB0, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00,
-                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
-        reassembler.counter = buffer.size() - 1;
+        struct SerardReassembler reassembler = serardReassemblerInit();
+        reassembler.metadata.transfer_id     = 0xCAFEB0BAUL;
+        reassembler.metadata.transfer_kind   = SerardTransferKindRequest;
+        reassembler.metadata.remote_node_id  = 1234;
+        reassembler.metadata.port_id         = 234;
+        reassembler.metadata.priority        = SerardPriorityOptional;
+        reassembler.destination_node_id      = 4321;
+        reassembler.counter                  = exposed::HEADER_SIZE - 1;
 
-        struct SerardRxTransfer transfer = {};
-        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = reassembler.metadata;
+        const int8_t out = exposed::rxValidateHeader(&ins, &reassembler);
         REQUIRE(out == 0);
-        REQUIRE(metadata.transfer_id == 0xCAFEB0BAUL);
-        REQUIRE(metadata.transfer_kind == SerardTransferKindRequest);
-        REQUIRE(metadata.remote_node_id == 1234);
-        REQUIRE(metadata.port_id == 234);
-        REQUIRE(metadata.priority == SerardPriorityOptional);
     }
 
     {
         // Valid transfer but not subscribed.
         struct SerardRx ins = serardRxInit(allocator, allocator);
 
-        struct SerardReassembler           reassembler = serardReassemblerInit();
-        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x04, 0xD2, 0x04, 0xFF, 0xFF, 0xD2, 0x04,
-                                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x08, 0x12};
-        // for (int i = 0; i < 22; i++)
-        //     printf("%02x ", buffer[i]);
-        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
-        reassembler.counter = buffer.size() - 1;
+        struct SerardReassembler reassembler = serardReassemblerInit();
+        reassembler.metadata.transfer_id     = 0;
+        reassembler.metadata.transfer_kind   = SerardTransferKindMessage;
+        reassembler.metadata.remote_node_id  = 1234;
+        reassembler.metadata.port_id         = 1234;
+        reassembler.metadata.priority        = SerardPriorityNominal;
+        reassembler.destination_node_id      = SERARD_NODE_ID_UNSET;
+        reassembler.counter                  = exposed::HEADER_SIZE - 1;
 
-        struct SerardRxTransfer transfer = {};
-        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = reassembler.metadata;
-        REQUIRE(out == 0);
-    }
-
-    {
-        // Corrupt header.
-        struct SerardRx ins = serardRxInit(failingAllocator, allocator);
-
-        struct SerardReassembler           reassembler = serardReassemblerInit();
-        const std::array<std::uint8_t, 24> buffer      = {0x02, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0,
-                                                          0xBA, 0xB0, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00,
-                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
-        reassembler.counter = buffer.size() - 1;
-
-        struct SerardRxTransfer transfer = {};
-        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = reassembler.metadata;
+        const int8_t out = exposed::rxValidateHeader(&ins, &reassembler);
         REQUIRE(out == 0);
     }
 
@@ -641,16 +582,16 @@ TEST_CASE("rxValidateHeader")
         struct SerardRxSubscription subscription = {};
         serardRxSubscribe(&ins, SerardTransferKindMessage, 1234, 64, 100, &subscription);
 
-        struct SerardReassembler           reassembler = serardReassemblerInit();
-        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x04, 0xD2, 0x04, 0xFF, 0xFF, 0xD2, 0x04,
-                                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x08, 0x12};
-        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
-        reassembler.counter = buffer.size() - 1;
+        struct SerardReassembler reassembler = serardReassemblerInit();
+        reassembler.metadata.transfer_id     = 0;
+        reassembler.metadata.transfer_kind   = SerardTransferKindMessage;
+        reassembler.metadata.remote_node_id  = 1234;
+        reassembler.metadata.port_id         = 1234;
+        reassembler.metadata.priority        = SerardPriorityNominal;
+        reassembler.destination_node_id      = SERARD_NODE_ID_UNSET;
+        reassembler.counter                  = exposed::HEADER_SIZE - 1;
 
-        struct SerardRxTransfer transfer = {};
-        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = reassembler.metadata;
+        const int8_t out = exposed::rxValidateHeader(&ins, &reassembler);
         REQUIRE(out == -SERARD_ERROR_MEMORY);
     }
 }

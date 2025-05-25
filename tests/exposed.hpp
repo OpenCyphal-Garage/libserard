@@ -16,6 +16,7 @@ namespace exposed
 {
 constexpr std::uint8_t COBS_FRAME_DELIMITER = 0U;
 constexpr std::size_t  COBS_LOOKAHEAD_SIZE  = 256U;
+constexpr std::size_t  HEADER_SIZE          = 24U;
 
 using HeaderCRC   = std::uint16_t;
 using TransferCRC = std::uint32_t;
@@ -64,12 +65,24 @@ auto               cobsFlush(struct CobsEncoder* const encoder) -> void;
 [[nodiscard]] auto cobsDecodeByte(struct SerardReassembler* const reassembler,
                                   std::uint8_t* const             inout_byte) -> CobsDecodeResult;
 
-auto               hostToLittle16(std::uint16_t const in, std::uint8_t* const out) -> void;
-auto               hostToLittle32(std::uint32_t const in, std::uint8_t* const out) -> void;
-auto               hostToLittle64(std::uint64_t const in, std::uint8_t* const out) -> void;
-[[nodiscard]] auto littleToHost16(const std::uint8_t* const in) -> std::uint16_t;
-[[nodiscard]] auto littleToHost32(const std::uint8_t* const in) -> std::uint32_t;
-[[nodiscard]] auto littleToHost64(const std::uint8_t* const in) -> std::uint64_t;
+auto hostToLittle16(std::uint16_t const in, std::uint8_t* const out) -> void;
+auto hostToLittle32(std::uint32_t const in, std::uint8_t* const out) -> void;
+auto hostToLittle64(std::uint64_t const in, std::uint8_t* const out) -> void;
+auto acceptField16(const std::size_t    start,
+                   const std::size_t    end,
+                   std::uint16_t* const field,
+                   const std::uint8_t   byte,
+                   const std::size_t    offset) -> void;
+auto acceptField32(const std::size_t    start,
+                   const std::size_t    end,
+                   std::uint32_t* const field,
+                   const std::uint8_t   byte,
+                   const std::size_t    offset) -> void;
+auto acceptField64(const std::size_t    start,
+                   const std::size_t    end,
+                   std::uint64_t* const field,
+                   const std::uint8_t   byte,
+                   const std::size_t    offset) -> void;
 
 [[nodiscard]] auto txMakeSessionSpecifier(const enum SerardTransferKind transfer_kind,
                                           const SerardPortID            port_id) -> std::uint16_t;
@@ -81,12 +94,11 @@ auto               txMakeHeader(const SerardNodeID                         node_
                                                     const struct SerardTreeNode* const node) -> std::int8_t;
 [[nodiscard]] auto rxSubscriptionPredicateOnPortID(const void* const                  user_reference,
                                                    const struct SerardTreeNode* const node) -> std::int8_t;
-[[nodiscard]] auto rxTryParseHeader(const std::uint8_t* const            payload,
-                                    struct SerardTransferMetadata* const out_metadata,
-                                    SerardNodeID* const                  out_destination_node_id) -> bool;
+[[nodiscard]] auto rxAcceptHeaderByte(const std::uint8_t              byte,
+                                      const std::size_t               offset,
+                                      struct SerardReassembler* const reassembler) -> bool;
 [[nodiscard]] auto rxValidateHeader(struct SerardRx* const          ins,
-                                    struct SerardReassembler* const reassembler,
-                                    struct SerardRxTransfer* const  out_transfer) -> std::int8_t;
+                                    struct SerardReassembler* const reassembler) -> std::int8_t;
 auto               rxSessionUpdate(struct SerardRx* const                ins,
                                    struct SerardInternalRxSession* const rxs,
                                    const struct SerardRxTransfer* const  transfer,

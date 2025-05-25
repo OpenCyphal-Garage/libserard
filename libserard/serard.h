@@ -263,6 +263,8 @@ enum SerardInternalRxState
     STATE_PAYLOAD,
 };
 
+typedef uint16_t HeaderCRC;
+
 /// Each redundant transport from which transfers are to be received needs to have a separate instance of this type.
 /// It stores the necessary state for COBS decoding and transfer reassembly.
 /// There is no de-segmentation because in Cyphal/serial, the maximum frame size is unlimited.
@@ -280,7 +282,10 @@ struct SerardReassembler
 
     /// Partially decoded transfer data.
     struct SerardTransferMetadata metadata;
-    uint8_t                       header[SERARD_TRANSFER_HEADER_SIZE];  // TODO: can we avoid storing this?
+    SerardNodeID                  destination_node_id;
+    uint16_t                      data_specifier_snm;
+    uint32_t                      frame_index_eot;
+    HeaderCRC                     header_crc;
     size_t                        payload_extent;
     uint8_t*                      payload;
 
