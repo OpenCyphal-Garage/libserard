@@ -40,14 +40,13 @@ extern "C" {
 /// By contract, a well-characterized application with properly sized memory pools will never encounter errors.
 /// The error code 1 is not used because -1 is often used as a generic error code in 3rd-party code.
 #define SERARD_ERROR_ARGUMENT 2
-#define SERARD_ERROR_MEMORY 3
-#define SERARD_ERROR_ANONYMOUS 4
+#define SERARD_ERROR_MEMORY   3
 
 /// Parameter ranges are inclusive; the lower bound is zero for all. See Cyphal/serial Specification for background.
-#define SERARD_SUBJECT_ID_MAX 8191U
-#define SERARD_SERVICE_ID_MAX 511U
-#define SERARD_NODE_ID_MAX 0xFFFEU
-#define SERARD_PRIORITY_MAX 7U
+#define SERARD_SUBJECT_ID_MAX    8191U
+#define SERARD_SERVICE_ID_MAX    511U
+#define SERARD_NODE_ID_MAX       0xFFFEU
+#define SERARD_PRIORITY_MAX      7U
 #define SERARD_TRANSFER_KIND_MAX 2U
 
 /// This value represents an undefined node-ID: broadcast destination or anonymous source.
@@ -103,8 +102,7 @@ struct SerardTreeNode
 /// A Cyphal transfer metadata (everything except the payload).
 struct SerardTransferMetadata
 {
-    enum SerardPriority priority;
-
+    enum SerardPriority     priority;
     enum SerardTransferKind transfer_kind;
 
     /// Subject-ID for message publications; service-ID for service requests/responses.
@@ -157,20 +155,26 @@ struct SerardRxTransfer
 {
     struct SerardTransferMetadata metadata;
 
-    /// The timestamp of the first received data fragment of this transfer.
+    /// The timestamp of the first received header byte of this transfer.
     /// The time system may be arbitrary as long as the clock is monotonic (steady).
     SerardMicrosecond timestamp_usec;
 
-    /// payload_size is the , while payload_extent is the size of the memory buffer allocated by
-    /// libserard to store the payload.
-    /// payload_size is guaranteed to be less than or equal to payload_extent.
-    /// If the payload is empty (payload_size = 0), the payload pointer may be NULL.
-    /// The application is required to deallocate the payload buffer after the transfer is processed.
-    /// Always de-allocate payload_extent bytes, NOT payload_size
+    /// The size of the received and decoded payload in bytes, excluding the CRC.
+    /// The first payload_size bytes of the payload pointer contain decoded payload
+    /// data and are guaranteed to be valid/dereferenceable.
     size_t payload_size;
-    // TODO: is this the same as the rx subscription extent?
+
+    /// The size of the underlying memory buffer allocated by the library to store the payload.
+    /// It is guaranteed that payload_size <= payload_extent.
     size_t payload_extent;
-    void*  payload;
+
+    /// Contains the decoded payload data.
+    /// The application is required to deallocate payload_extent bytes of this payload buffer
+    /// using the memory resource provided to serardRxInit() after the transfer is processed.
+    ///
+    /// If the payload is empty (payload_size = 0), the payload pointer may be NULL.
+    /// The application should not attempt to dereference past payload_size many bytes.
+    void* payload;
 };
 
 /// A pointer to the memory allocation function. The semantics are similar to malloc():
@@ -251,6 +255,14 @@ struct SerardRx
     struct SerardRxSubscription* rx_subscriptions[SERARD_NUM_TRANSFER_KINDS];
 };
 
+enum SerardInternalRxState
+{
+    STATE_REJECT = 0U,
+    STATE_DELIMITER,
+    STATE_HEADER,
+    STATE_PAYLOAD,
+};
+
 /// Each redundant transport from which transfers are to be received needs to have a separate instance of this type.
 /// It stores the necessary state for COBS decoding and transfer reassembly.
 /// There is no de-segmentation because in Cyphal/serial, the maximum frame size is unlimited.
@@ -258,8 +270,9 @@ struct SerardRx
 /// Ex https://github.com/Zubax/kocherga/blob/69e2131d3a26807428f67dc2f823afd988da1bc7/kocherga/kocherga_serial.hpp#L161
 struct SerardReassembler
 {
-    size_t  counter;
-    uint8_t state;
+    size_t counter;
+    bool   discard;
+    // enum SerardInternalRxState state;
 
     uint8_t code;
     uint8_t copy;
@@ -274,8 +287,8 @@ struct SerardReassembler
 /// If any of the memory resource function pointers are NULL, the behavior is undefined.
 /// The instance does not hold any resources itself except for the allocated memory.
 /// The time complexity is constant. This function does not invoke the dynamic memory manager.
-struct SerardRx serardInit(const struct SerardMemoryResource memory_payload,
-                           const struct SerardMemoryResource memory_rx_session);
+struct SerardRx serardRxInit(const struct SerardMemoryResource memory_payload,
+                             const struct SerardMemoryResource memory_rx_session);
 
 /// Construct a new reassembler instance.
 /// An instance of the reassembler is required for each redundant transport interface
@@ -322,10 +335,11 @@ int8_t serardTxPush(const SerardNodeID                         node_id,
                     void* const                                user_reference,
                     const SerardTxEmit                         emitter);
 
-/// TODO the docs are missing.
+/// TODO: the docs are missing.
 /// If inout_payload_size is greater than zero, the payload pointer shall be advanced by the negative payload size delta
 /// and the function shall be invoked again. This condition is guaranteed to never occur if the input payload size
 /// does not exceed 32 bytes.
+/// FIXME: that last note is not true, where did 32 bytes come from?
 int8_t serardRxAccept(struct SerardRx* const              ins,
                       struct SerardReassembler* const     reassembler,
                       const SerardMicrosecond             timestamp_usec,

@@ -88,3 +88,59 @@ TEST_CASE("serardTxPush")
         }
     }
 }
+
+TEST_CASE("serardRxAccept")
+{
+    // TODO: test that invalid messages are discarded
+    // TODO: whitebox testing of RX state machine
+    struct SerardMemoryResource allocator = {
+        .user_reference = nullptr,
+        .allocate       = &serardAlloc,
+        .deallocate     = &serardFree,
+    };
+
+    struct SerardRx ins = serardRxInit(allocator, allocator);
+    ins.node_id         = 4321;
+
+    SerardRxSubscription subscription = {};
+    serardRxSubscribe(&ins, SerardTransferKindMessage, 1234, 100, 1000, &subscription);
+
+    SerardReassembler reassembler = serardReassemblerInit();
+    // const std::array<std::uint8_t, 24> buffer      = {0x01, 0x04, 0xD2, 0x04, 0xFF, 0xFF, 0xD2, 0x04,
+    //                                                   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    //                                                   0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x08, 0x12};
+    const std::array<std::uint8_t, 40> buffer = {0x00, 0x09, 0x01, 0x04, 0xd2, 0x04, 0xff, 0xff, 0xd2, 0x04,
+                                                 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+                                                 0x02, 0x80, 0x01, 0x10, 0x08, 0x12, 0x30, 0x31, 0x32, 0x33,
+                                                 0x34, 0x35, 0x36, 0x37, 0x38, 0xd2, 0xee, 0x56, 0xc8, 0x00};
+
+    size_t                payload_size = buffer.size();
+    SerardRxTransfer      out          = {};
+    SerardRxSubscription* out_sub      = nullptr;
+    const int8_t          ret = serardRxAccept(&ins, &reassembler, 0, &payload_size, buffer.data(), 0, &out, &out_sub);
+    REQUIRE(ret == 1);
+
+    // struct SerardTransferMetadata metadata = {
+    //     .priority       = SerardPriorityNominal,
+    //     .transfer_kind  = SerardTransferKindMessage,
+    //     .port_id        = 1234,
+    //     .remote_node_id = SERARD_NODE_ID_UNSET,
+    //     .transfer_id    = 0,
+    // };
+    //
+    // buffer_t    result_buffer;
+    // auto* const user_reference = reinterpret_cast<void*>(&result_buffer);
+    // serardTxPush(ins.node_id, &metadata, 0, nullptr, user_reference, &serardEmitter);
+    // for (unsigned char& it : result_buffer)
+    // {
+    //     printf("%02x ", it);
+    // }
+    // printf("\n");
+
+    // struct SerardRxSubscription sub
+    // {};
+    // serardRxSubscribe(&serard, SerardTransferKindMessage, 1234, 0, 1000, &sub);
+    // struct SerardReassembler reassembler
+    // {};
+    // size_t payload_size = result_buffer.size();
+}

@@ -10,7 +10,7 @@
 
 using buffer_t = std::vector<std::uint8_t>;
 
-static bool serardEmitter(void* const user_reference, uint8_t data_size, const uint8_t* data)
+static auto serardEmitter(void* const user_reference, uint8_t data_size, const uint8_t* data) -> bool
 {
     REQUIRE(data_size > 0);
     REQUIRE(data != NULL);
@@ -252,7 +252,7 @@ TEST_CASE("HeaderCRC")
     REQUIRE(0x29B1U == crc);
 }
 
-static void testTransferCRC(void)
+static auto testTransferCRC()
 {
     exposed::TransferCRC crc = exposed::TRANSFER_CRC_INITIAL;
     crc                      = exposed::transferCRCAdd(crc, 3, "123");
@@ -377,432 +377,581 @@ TEST_CASE("txMakeHeader")
     }
 }
 
-void* serardAlloc(void* const user_reference, const size_t size)
+auto serardAlloc(void* const user_reference, const size_t size) -> void*
 {
     (void) user_reference;
     return malloc(size);
 }
 
-void serardFree(void* const user_reference, const size_t size, void* const pointer)
+auto serardFree(void* const user_reference, const size_t size, void* const pointer) -> void
 {
+    if (pointer == nullptr)
+    {
+        return;
+    }
+
     (void) user_reference;
     (void) size;
     free(pointer);
 }
 
+auto serardFailingAlloc(void* const user_reference, const size_t size) -> void*
+{
+    (void) user_reference;
+    (void) size;
+    return nullptr;
+}
+
 TEST_CASE("rxTryParseHeader")
+{
+    {
+        /// Valid message transfer.
+        SerardTransferMetadata       metadata            = {};
+        SerardNodeID                 destination_node_id = 0;
+        std::array<std::uint8_t, 24> buffer = {0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x04, 0x00, 0x00, 0x00, 0x00,
+                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6};
+        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        REQUIRE(valid);
+        REQUIRE(metadata.transfer_id == 0);
+        REQUIRE(metadata.transfer_kind == SerardTransferKindMessage);
+        REQUIRE(destination_node_id == 4321);
+        REQUIRE(metadata.remote_node_id == 1234);
+        REQUIRE(metadata.port_id == 1234);
+        REQUIRE(metadata.priority == SerardPriorityNominal);
+    }
+
+    {
+        /// Valid response transfer.
+        SerardTransferMetadata       metadata            = {};
+        SerardNodeID                 destination_node_id = 0;
+        std::array<std::uint8_t, 24> buffer = {0x01, 0x01, 0xD2, 0x04, 0xE1, 0x10, 0x7B, 0x80, 0x00, 0x00, 0x00, 0x00,
+                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xC0, 0xFF};
+        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        REQUIRE(valid);
+        REQUIRE(metadata.transfer_id == 0);
+        REQUIRE(metadata.transfer_kind == SerardTransferKindResponse);
+        REQUIRE(destination_node_id == 4321);
+        REQUIRE(metadata.remote_node_id == 1234);
+        REQUIRE(metadata.port_id == 123);
+        REQUIRE(metadata.priority == SerardPriorityImmediate);
+    }
+
+    {
+        /// Valid request transfer.
+        SerardTransferMetadata       metadata            = {};
+        SerardNodeID                 destination_node_id = 0;
+        std::array<std::uint8_t, 24> buffer = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
+                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
+        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        REQUIRE(valid);
+        REQUIRE(metadata.transfer_id == 0xCAFEB0BAUL);
+        REQUIRE(metadata.transfer_kind == SerardTransferKindRequest);
+        REQUIRE(destination_node_id == 4321);
+        REQUIRE(metadata.remote_node_id == 1234);
+        REQUIRE(metadata.port_id == 234);
+        REQUIRE(metadata.priority == SerardPriorityOptional);
+    }
+
+    {
+        /// Invalid header version.
+        SerardTransferMetadata       metadata            = {};
+        SerardNodeID                 destination_node_id = 0;
+        std::array<std::uint8_t, 24> buffer = {0x02, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
+                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
+        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        REQUIRE(!valid);
+    }
+
+    {
+        /// Invalid transfer priority.
+        SerardTransferMetadata       metadata            = {};
+        SerardNodeID                 destination_node_id = 0;
+        std::array<std::uint8_t, 24> buffer = {0x01, 0x0F, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
+                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
+        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        REQUIRE(!valid);
+    }
+
+    {
+        /// Message transfer with request not response bit set.
+        SerardTransferMetadata       metadata            = {};
+        SerardNodeID                 destination_node_id = 0;
+        std::array<std::uint8_t, 24> buffer = {0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x44, 0x00, 0x00, 0x00, 0x00,
+                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6};
+        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        REQUIRE(!valid);
+    }
+
+    {
+        /// Invalid frame index.
+        SerardTransferMetadata       metadata            = {};
+        SerardNodeID                 destination_node_id = 0;
+        std::array<std::uint8_t, 24> buffer = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
+                                               0x00, 0x00, 0x00, 0x00, 0xCA, 0xFE, 0xCA, 0x80, 0x00, 0x00, 0xDB, 0x89};
+        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        REQUIRE(!valid);
+    }
+
+    {
+        /// Transfer with end of transfer bit not set.
+        SerardTransferMetadata       metadata            = {};
+        SerardNodeID                 destination_node_id = 0;
+        std::array<std::uint8_t, 24> buffer = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
+                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xDB, 0x89};
+        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        REQUIRE(!valid);
+    }
+
+    {
+        /// Transfer with invalid CRC.
+        SerardTransferMetadata       metadata            = {};
+        SerardNodeID                 destination_node_id = 0;
+        std::array<std::uint8_t, 24> buffer = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
+                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xD3, 0x89};
+        const bool                   valid = exposed::rxTryParseHeader(buffer.begin(), &metadata, &destination_node_id);
+        REQUIRE(!valid);
+    }
+}
+
+TEST_CASE("rxValidateHeader")
 {
     struct SerardMemoryResource allocator = {
         .user_reference = nullptr,
         .allocate       = &serardAlloc,
         .deallocate     = &serardFree,
     };
-    struct SerardRx serard = serardInit(allocator, allocator);
 
-    exposed::RxTransferModel out{};
+    struct SerardMemoryResource failingAllocator = {
+        .user_reference = nullptr,
+        .allocate       = &serardFailingAlloc,
+        .deallocate     = &serardFree,
+    };
 
     {
-        std::array<std::uint8_t, 24> buffer = {0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x04, 0x00, 0x00, 0x00, 0x00,
-                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6};
-        const bool                   valid  = exposed::rxTryParseHeader(0, buffer.begin(), &out);
-        REQUIRE(valid);
-        REQUIRE(out.transfer_id == 0);
-        REQUIRE(out.transfer_kind == SerardTransferKindMessage);
-        REQUIRE(out.destination_node_id == 4321);
-        REQUIRE(out.source_node_id == 1234);
-        REQUIRE(out.port_id == 1234);
-        REQUIRE(out.priority == SerardPriorityNominal);
-        REQUIRE(out.timestamp_usec == 0);
+        // Valid anonymous transfer.
+        struct SerardRx             ins          = serardRxInit(allocator, allocator);
+        struct SerardRxSubscription subscription = {};
+        serardRxSubscribe(&ins, SerardTransferKindMessage, 1234, 64, 100, &subscription);
+
+        struct SerardReassembler           reassembler = serardReassemblerInit();
+        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x04, 0xD2, 0x04, 0xFF, 0xFF, 0xD2, 0x04,
+                                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x08, 0x12};
+        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
+        reassembler.counter = buffer.size() - 1;
+
+        struct SerardRxTransfer transfer = {};
+        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
+        const auto&             metadata = transfer.metadata;
+        REQUIRE(out == 1);
+        REQUIRE(metadata.transfer_id == 0);
+        REQUIRE(metadata.transfer_kind == SerardTransferKindMessage);
+        REQUIRE(metadata.remote_node_id == 1234);
+        REQUIRE(metadata.port_id == 1234);
+        REQUIRE(metadata.priority == SerardPriorityNominal);
     }
 
     {
-        std::array<std::uint8_t, 24> buffer = {0x01, 0x01, 0xD2, 0x04, 0xE1, 0x10, 0x7B, 0x80, 0x00, 0x00, 0x00, 0x00,
-                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xC0, 0xFF};
-        const bool                   valid  = exposed::rxTryParseHeader(0x12345678, buffer.begin(), &out);
-        REQUIRE(valid);
-        REQUIRE(out.transfer_id == 0);
-        REQUIRE(out.transfer_kind == SerardTransferKindResponse);
-        REQUIRE(out.destination_node_id == 4321);
-        REQUIRE(out.source_node_id == 1234);
-        REQUIRE(out.port_id == 123);
-        REQUIRE(out.priority == SerardPriorityImmediate);
-        REQUIRE(out.timestamp_usec == 0x12345678);
+        // Valid service transfer addressed to this node.
+        struct SerardRx ins                      = serardRxInit(allocator, allocator);
+        ins.node_id                              = 4321;
+        struct SerardRxSubscription subscription = {};
+        serardRxSubscribe(&ins, SerardTransferKindRequest, 234, 64, 100, &subscription);
+
+        struct SerardReassembler           reassembler = serardReassemblerInit();
+        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0,
+                                                          0xBA, 0xB0, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00,
+                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
+        std::copy(buffer.begin(), buffer.end(), reassembler.header);
+        reassembler.counter = buffer.size() - 1;
+
+        struct SerardRxTransfer transfer = {};
+        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
+        const auto&             metadata = transfer.metadata;
+        REQUIRE(out == 1);
+        REQUIRE(metadata.transfer_id == 0xCAFEB0BAUL);
+        REQUIRE(metadata.transfer_kind == SerardTransferKindRequest);
+        REQUIRE(metadata.remote_node_id == 1234);
+        REQUIRE(metadata.port_id == 234);
+        REQUIRE(metadata.priority == SerardPriorityOptional);
     }
 
     {
-        std::array<std::uint8_t, 24> buffer = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0, 0xBA, 0xB0, 0xFE, 0xCA,
-                                               0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
-        const bool                   valid  = exposed::rxTryParseHeader(1, buffer.begin(), &out);
-        REQUIRE(valid);
-        REQUIRE(out.transfer_id == 0xCAFEB0BAUL);
-        REQUIRE(out.transfer_kind == SerardTransferKindRequest);
-        REQUIRE(out.destination_node_id == 4321);
-        REQUIRE(out.source_node_id == 1234);
-        REQUIRE(out.port_id == 234);
-        REQUIRE(out.priority == SerardPriorityOptional);
-        REQUIRE(out.timestamp_usec == 1);
+        // Valid service transfer addressed to a different node.
+        struct SerardRx ins = serardRxInit(allocator, allocator);
+        ins.node_id         = 1234;
+
+        struct SerardReassembler           reassembler = serardReassemblerInit();
+        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0,
+                                                          0xBA, 0xB0, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00,
+                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
+        std::copy(buffer.begin(), buffer.end(), reassembler.header);
+        reassembler.counter = buffer.size() - 1;
+
+        struct SerardRxTransfer transfer = {};
+        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
+        const auto&             metadata = transfer.metadata;
+        REQUIRE(out == 0);
+        REQUIRE(metadata.transfer_id == 0xCAFEB0BAUL);
+        REQUIRE(metadata.transfer_kind == SerardTransferKindRequest);
+        REQUIRE(metadata.remote_node_id == 1234);
+        REQUIRE(metadata.port_id == 234);
+        REQUIRE(metadata.priority == SerardPriorityOptional);
+    }
+
+    {
+        // Valid transfer but not subscribed.
+        struct SerardRx ins = serardRxInit(allocator, allocator);
+
+        struct SerardReassembler           reassembler = serardReassemblerInit();
+        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x04, 0xD2, 0x04, 0xFF, 0xFF, 0xD2, 0x04,
+                                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x08, 0x12};
+        // for (int i = 0; i < 22; i++)
+        //     printf("%02x ", buffer[i]);
+        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
+        reassembler.counter = buffer.size() - 1;
+
+        struct SerardRxTransfer transfer = {};
+        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
+        const auto&             metadata = transfer.metadata;
+        REQUIRE(out == 0);
+    }
+
+    {
+        // Corrupt header.
+        struct SerardRx ins = serardRxInit(failingAllocator, allocator);
+
+        struct SerardReassembler           reassembler = serardReassemblerInit();
+        const std::array<std::uint8_t, 24> buffer      = {0x02, 0x07, 0xD2, 0x04, 0xE1, 0x10, 0xEA, 0xC0,
+                                                          0xBA, 0xB0, 0xFE, 0xCA, 0x00, 0x00, 0x00, 0x00,
+                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0xDB, 0x89};
+        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
+        reassembler.counter = buffer.size() - 1;
+
+        struct SerardRxTransfer transfer = {};
+        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
+        const auto&             metadata = transfer.metadata;
+        REQUIRE(out == 0);
+    }
+
+    {
+        // Allocation failure.
+        struct SerardRx             ins          = serardRxInit(failingAllocator, allocator);
+        struct SerardRxSubscription subscription = {};
+        serardRxSubscribe(&ins, SerardTransferKindMessage, 1234, 64, 100, &subscription);
+
+        struct SerardReassembler           reassembler = serardReassemblerInit();
+        const std::array<std::uint8_t, 24> buffer      = {0x01, 0x04, 0xD2, 0x04, 0xFF, 0xFF, 0xD2, 0x04,
+                                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                                          0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x08, 0x12};
+        std::copy(buffer.begin(), buffer.end(), &reassembler.header[0]);
+        reassembler.counter = buffer.size() - 1;
+
+        struct SerardRxTransfer transfer = {};
+        const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
+        const auto&             metadata = transfer.metadata;
+        REQUIRE(out == -SERARD_ERROR_MEMORY);
     }
 }
 
 TEST_CASE("serardRxAcceptInternal")
 {
-    using State = exposed::ReassemblerState;
-
-    // TODO: test that invalid messages are discarded
-    // TODO: whitebox testing of RX state machine
-    struct SerardMemoryResource allocator = {
-        .user_reference = nullptr,
-        .allocate       = &serardAlloc,
-        .deallocate     = &serardFree,
-    };
-
-    // non-anonymous node with no subscriptions:
-    // feed a message and make sure the state machine
-    // goes through the right transitions and validates,
-    // then discards it as unimportant
-    {
-        struct SerardRx serard            = serardInit(allocator, allocator);
-        serard.node_id                    = 4321;
-        SerardReassembler     reassembler = serardReassemblerInit();
-        SerardRxTransfer      out;
-        SerardRxSubscription* out_sub = nullptr;
-
-        // initially in rejection state
-        REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
-
-        // stay in reject as long as non-delimiters are passed
-        const std::array<std::uint8_t, 8> junk = {0x12, 0x34, 0x56, 0x78, 0x01, 0x01, 0xca, 0xfe};
-        for (const auto byte : junk)
-        {
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-            REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
-            REQUIRE(0U == reassembler.counter);
-        }
-
-        // feed in a delimiter, the state should transition
-        // we should be able to tolerate multiple delimiters
-        for (std::size_t i = 0; i < 4; i++)
-        {
-            const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
-            std::size_t        inout_size = 1U;
-            const int8_t       ret = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-            REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
-        }
-
-        const std::array<std::uint8_t, 25> header_enc = {0x09, 0x01, 0x04, 0xd2, 0x04, 0xe1, 0x10, 0xd2, 0x04,
-                                                         0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-                                                         0x01, 0x02, 0x80, 0x01, 0x10, 0x4a, 0xd6};
-        const std::array<std::uint8_t, 24> header_raw = {
-            0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x04, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6,
-        };
-
-        // feed in the first byte of the header - this is a cobs overhead byte
-        // so the state machine should stay stable
-        {
-            REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
-            const auto   byte       = header_enc[0];
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-        }
-
-        // feed in the second byte of the header - the state machine
-        // should transition to latch the header
-        {
-            REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
-            const auto   byte       = header_enc[1];
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-
-            REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
-            REQUIRE(1U == reassembler.counter);
-            REQUIRE(byte == reassembler.header[0]);
-        }
-
-        // feed in the header (exept last byte)
-        for (std::size_t i = 2; i < header_enc.size() - 1; i++)
-        {
-            const auto   byte       = header_enc[i];
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-
-            REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
-        }
-
-        // feed in the last byte of the header - the state machine
-        // should validate and reject the header (since we aren't subscribed)
-        {
-            REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
-            const auto   byte       = header_enc[24];
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-
-            // the API is not required to preserve the header on rejected transfers
-            // (or in general) but this implementation does, so verify that it
-            // correctly decoded and parsed the header
-            REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
-            REQUIRE(24U == reassembler.counter);
-            for (std::size_t i = 0; i < 24U; i++)
-            {
-                INFO(i);
-                INFO((int) header_raw[i]);
-                INFO((int) reassembler.header[i]);
-                REQUIRE(header_raw[i] == reassembler.header[i]);
-            }
-        }
-
-        // keep feeding a mock payload - the state machine should
-        // continue to reject it
-        const std::array<std::uint8_t, 13> payload_enc = {
-            0x30,
-            0x31,
-            0x32,
-            0x33,
-            0x34,
-            0x35,
-            0x36,
-            0x37,
-            0x38,
-            0xd2,
-            0xee,
-            0x56,
-            0xc8,
-        };
-
-        for (const auto byte : payload_enc)
-        {
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-            REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
-        }
-
-        // feed in a delimiter, the state should transition
-        const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
-        std::size_t        inout_size = 1U;
-        const int8_t       ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-        REQUIRE(0U == ret);
-        REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
-    }
-
-    // try the same message again, but this time, subscribe to it
-    {
-        struct SerardRx serard = serardInit(allocator, allocator);
-        serard.node_id         = 4321;
-
-        SerardRxSubscription sub;
-        serardRxSubscribe(&serard, SerardTransferKindMessage, 1234, 16, 1000, &sub);
-
-        SerardReassembler     reassembler = serardReassemblerInit();
-        SerardRxTransfer      out;
-        SerardRxSubscription* out_sub = nullptr;
-
-        // initially in rejection state
-        REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
-
-        // stay in reject as long as non-delimiters are passed
-        const std::array<std::uint8_t, 8> junk = {0x12, 0x34, 0x56, 0x78, 0x01, 0x01, 0xca, 0xfe};
-        for (const auto byte : junk)
-        {
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-            REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
-            REQUIRE(0U == reassembler.counter);
-        }
-
-        // feed in a delimiter, the state should transition
-        // we should be able to tolerate multiple delimiters
-        for (std::size_t i = 0; i < 4; i++)
-        {
-            const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
-            std::size_t        inout_size = 1U;
-            const int8_t       ret = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-            REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
-        }
-
-        const std::array<std::uint8_t, 25> header_enc = {0x09, 0x01, 0x04, 0xd2, 0x04, 0xe1, 0x10, 0xd2, 0x04,
-                                                         0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-                                                         0x01, 0x02, 0x80, 0x01, 0x10, 0x4a, 0xd6};
-        const std::array<std::uint8_t, 24> header_raw = {
-            0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x04, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6,
-        };
-
-        // feed in the first byte of the header - this is a cobs overhead byte
-        // so the state machine should stay stable
-        {
-            REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
-            const auto   byte       = header_enc[0];
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-        }
-
-        // feed in the second byte of the header - the state machine
-        // should transition to latch the header
-        {
-            REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
-            const auto   byte       = header_enc[1];
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-
-            REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
-            REQUIRE(1U == reassembler.counter);
-            REQUIRE(byte == reassembler.header[0]);
-        }
-
-        // feed in the header (exept last byte)
-        for (std::size_t i = 2; i < header_enc.size() - 1; i++)
-        {
-            const auto   byte       = header_enc[i];
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-
-            REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
-        }
-
-        // feed in the last byte of the header - the state machine
-        // should validate and reject the header (since we aren't subscribed)
-        {
-            REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
-            const auto   byte       = header_enc[24];
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-
-            // this time, the reassembler counter will be reset
-            // to count payload bytes
-            REQUIRE(0U == reassembler.counter);
-
-            // the API is not required to preserve the header on rejected transfers
-            // (or in general) but this implementation does, so verify that it
-            // correctly decoded and parsed the header
-            REQUIRE(State::PAYLOAD == static_cast<State>(reassembler.state));
-            for (std::size_t i = 0; i < 24U; i++)
-            {
-                INFO(i);
-                INFO((int) header_raw[i]);
-                INFO((int) reassembler.header[i]);
-                REQUIRE(header_raw[i] == reassembler.header[i]);
-            }
-        }
-
-        // keep feeding a mock payload - the state machine should
-        // continue to reject it
-        const std::array<std::uint8_t, 13> payload = {
-            0x30,
-            0x31,
-            0x32,
-            0x33,
-            0x34,
-            0x35,
-            0x36,
-            0x37,
-            0x38,
-            0xd2,
-            0xee,
-            0x56,
-            0xc8,
-        };
-
-        for (const auto byte : payload)
-        {
-            std::size_t  inout_size = 1U;
-            const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-            REQUIRE(0U == ret);
-            REQUIRE(State::PAYLOAD == static_cast<State>(reassembler.state));
-        }
-
-        // feed in a delimiter, the state should transition
-        const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
-        std::size_t        inout_size = 1U;
-        const int8_t       ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
-        REQUIRE(1U == ret);
-        REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
-
-        REQUIRE(0U == inout_size);
-        REQUIRE(out_sub == &sub);
-        REQUIRE(payload.size() == reassembler.counter);
-        REQUIRE((payload.size() - exposed::TRANSFER_CRC_SIZE_BYTES) == out.payload_size);
-        for (std::size_t i = 0; i < payload.size(); i++)
-        {
-            INFO(i);
-            REQUIRE(payload[i] == static_cast<const std::uint8_t*>(out.payload)[i]);
-        }
-    }
+    // using State = exposed::ReassemblerState;
+    //
+    // // TODO: test that invalid messages are discarded
+    // // TODO: whitebox testing of RX state machine
+    // struct SerardMemoryResource allocator = {
+    //     .user_reference = nullptr,
+    //     .allocate       = &serardAlloc,
+    //     .deallocate     = &serardFree,
+    // };
+    //
+    // // non-anonymous node with no subscriptions:
+    // // feed a message and make sure the state machine
+    // // goes through the right transitions and validates,
+    // // then discards it as unimportant
+    // {
+    //     struct SerardRx serard            = serardRxInit(allocator, allocator);
+    //     serard.node_id                    = 4321;
+    //     SerardReassembler     reassembler = serardReassemblerInit();
+    //     SerardRxTransfer      out;
+    //     SerardRxSubscription* out_sub = nullptr;
+    //
+    //     // initially in rejection state
+    //     REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
+    //
+    //     // stay in reject as long as non-delimiters are passed
+    //     const std::array<std::uint8_t, 8> junk = {0x12, 0x34, 0x56, 0x78, 0x01, 0x01, 0xca, 0xfe};
+    //     for (const auto byte : junk)
+    //     {
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret); REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
+    //         REQUIRE(0U == reassembler.counter);
+    //     }
+    //
+    //     // feed in a delimiter, the state should transition
+    //     // we should be able to tolerate multiple delimiters
+    //     for (std::size_t i = 0; i < 4; i++)
+    //     {
+    //         const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
+    //         std::size_t        inout_size = 1U;
+    //         const int8_t       ret = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
+    //         REQUIRE(0U == ret);
+    //         REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
+    //     }
+    //
+    //     const std::array<std::uint8_t, 25> header_enc = {0x09, 0x01, 0x04, 0xd2, 0x04, 0xe1, 0x10, 0xd2, 0x04,
+    //                                                      0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    //                                                      0x01, 0x02, 0x80, 0x01, 0x10, 0x4a, 0xd6};
+    //     const std::array<std::uint8_t, 24> header_raw = {
+    //         0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x04, 0x00, 0x00, 0x00, 0x00,
+    //         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6,
+    //     };
+    //
+    //     // feed in the first byte of the header - this is a cobs overhead byte
+    //     // so the state machine should stay stable
+    //     {
+    //         REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
+    //         const auto   byte       = header_enc[0];
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret);
+    //     }
+    //
+    //     // feed in the second byte of the header - the state machine
+    //     // should transition to latch the header
+    //     {
+    //         REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
+    //         const auto   byte       = header_enc[1];
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret);
+    //
+    //         REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
+    //         REQUIRE(1U == reassembler.counter);
+    //         REQUIRE(byte == reassembler.header[0]);
+    //     }
+    //
+    //     // feed in the header (exept last byte)
+    //     for (std::size_t i = 2; i < header_enc.size() - 1; i++)
+    //     {
+    //         const auto   byte       = header_enc[i];
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret);
+    //
+    //         REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
+    //     }
+    //
+    //     // feed in the last byte of the header - the state machine
+    //     // should validate and reject the header (since we aren't subscribed)
+    //     {
+    //         REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
+    //         const auto   byte       = header_enc[24];
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret);
+    //
+    //         // the API is not required to preserve the header on rejected transfers
+    //         // (or in general) but this implementation does, so verify that it
+    //         // correctly decoded and parsed the header
+    //         REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
+    //         REQUIRE(24U == reassembler.counter);
+    //         for (std::size_t i = 0; i < 24U; i++)
+    //         {
+    //             INFO(i);
+    //             INFO((int) header_raw[i]);
+    //             INFO((int) reassembler.header[i]);
+    //             REQUIRE(header_raw[i] == reassembler.header[i]);
+    //         }
+    //     }
+    //
+    //     // keep feeding a mock payload - the state machine should
+    //     // continue to reject it
+    //     const std::array<std::uint8_t, 13> payload_enc = {
+    //         0x30,
+    //         0x31,
+    //         0x32,
+    //         0x33,
+    //         0x34,
+    //         0x35,
+    //         0x36,
+    //         0x37,
+    //         0x38,
+    //         0xd2,
+    //         0xee,
+    //         0x56,
+    //         0xc8,
+    //     };
+    //
+    //     for (const auto byte : payload_enc)
+    //     {
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret); REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
+    //     }
+    //
+    //     // feed in a delimiter, the state should transition
+    //     const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
+    //     std::size_t        inout_size = 1U;
+    //     const int8_t       ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //     &out_sub); REQUIRE(0U == ret); REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
+    // }
+    //
+    // // try the same message again, but this time, subscribe to it
+    // {
+    //     struct SerardRx serard = serardRxInit(allocator, allocator);
+    //     serard.node_id         = 4321;
+    //
+    //     SerardRxSubscription sub;
+    //     serardRxSubscribe(&serard, SerardTransferKindMessage, 1234, 16, 1000, &sub);
+    //
+    //     SerardReassembler     reassembler = serardReassemblerInit();
+    //     SerardRxTransfer      out;
+    //     SerardRxSubscription* out_sub = nullptr;
+    //
+    //     // initially in rejection state
+    //     REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
+    //
+    //     // stay in reject as long as non-delimiters are passed
+    //     const std::array<std::uint8_t, 8> junk = {0x12, 0x34, 0x56, 0x78, 0x01, 0x01, 0xca, 0xfe};
+    //     for (const auto byte : junk)
+    //     {
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret); REQUIRE(State::REJECT == static_cast<State>(reassembler.state));
+    //         REQUIRE(0U == reassembler.counter);
+    //     }
+    //
+    //     // feed in a delimiter, the state should transition
+    //     // we should be able to tolerate multiple delimiters
+    //     for (std::size_t i = 0; i < 4; i++)
+    //     {
+    //         const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
+    //         std::size_t        inout_size = 1U;
+    //         const int8_t       ret = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out, &out_sub);
+    //         REQUIRE(0U == ret);
+    //         REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
+    //     }
+    //
+    //     const std::array<std::uint8_t, 25> header_enc = {0x09, 0x01, 0x04, 0xd2, 0x04, 0xe1, 0x10, 0xd2, 0x04,
+    //                                                      0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    //                                                      0x01, 0x02, 0x80, 0x01, 0x10, 0x4a, 0xd6};
+    //     const std::array<std::uint8_t, 24> header_raw = {
+    //         0x01, 0x04, 0xD2, 0x04, 0xE1, 0x10, 0xD2, 0x04, 0x00, 0x00, 0x00, 0x00,
+    //         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x4A, 0xD6,
+    //     };
+    //
+    //     // feed in the first byte of the header - this is a cobs overhead byte
+    //     // so the state machine should stay stable
+    //     {
+    //         REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
+    //         const auto   byte       = header_enc[0];
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret);
+    //     }
+    //
+    //     // feed in the second byte of the header - the state machine
+    //     // should transition to latch the header
+    //     {
+    //         REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
+    //         const auto   byte       = header_enc[1];
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret);
+    //
+    //         REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
+    //         REQUIRE(1U == reassembler.counter);
+    //         REQUIRE(byte == reassembler.header[0]);
+    //     }
+    //
+    //     // feed in the header (exept last byte)
+    //     for (std::size_t i = 2; i < header_enc.size() - 1; i++)
+    //     {
+    //         const auto   byte       = header_enc[i];
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret);
+    //
+    //         REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
+    //     }
+    //
+    //     // feed in the last byte of the header - the state machine
+    //     // should validate and reject the header (since we aren't subscribed)
+    //     {
+    //         REQUIRE(State::HEADER == static_cast<State>(reassembler.state));
+    //         const auto   byte       = header_enc[24];
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret);
+    //
+    //         // this time, the reassembler counter will be reset
+    //         // to count payload bytes
+    //         REQUIRE(0U == reassembler.counter);
+    //
+    //         // the API is not required to preserve the header on rejected transfers
+    //         // (or in general) but this implementation does, so verify that it
+    //         // correctly decoded and parsed the header
+    //         REQUIRE(State::PAYLOAD == static_cast<State>(reassembler.state));
+    //         for (std::size_t i = 0; i < 24U; i++)
+    //         {
+    //             INFO(i);
+    //             INFO((int) header_raw[i]);
+    //             INFO((int) reassembler.header[i]);
+    //             REQUIRE(header_raw[i] == reassembler.header[i]);
+    //         }
+    //     }
+    //
+    //     // keep feeding a mock payload - the state machine should
+    //     // continue to reject it
+    //     const std::array<std::uint8_t, 13> payload = {
+    //         0x30,
+    //         0x31,
+    //         0x32,
+    //         0x33,
+    //         0x34,
+    //         0x35,
+    //         0x36,
+    //         0x37,
+    //         0x38,
+    //         0xd2,
+    //         0xee,
+    //         0x56,
+    //         0xc8,
+    //     };
+    //
+    //     for (const auto byte : payload)
+    //     {
+    //         std::size_t  inout_size = 1U;
+    //         const int8_t ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //         &out_sub); REQUIRE(0U == ret); REQUIRE(State::PAYLOAD == static_cast<State>(reassembler.state));
+    //     }
+    //
+    //     // feed in a delimiter, the state should transition
+    //     const std::uint8_t byte       = exposed::COBS_FRAME_DELIMITER;
+    //     std::size_t        inout_size = 1U;
+    //     const int8_t       ret        = serardRxAccept(&serard, &reassembler, 0, &inout_size, &byte, 0, &out,
+    //     &out_sub); REQUIRE(1U == ret); REQUIRE(State::DELIMITER == static_cast<State>(reassembler.state));
+    //
+    //     REQUIRE(0U == inout_size);
+    //     REQUIRE(out_sub == &sub);
+    //     REQUIRE(payload.size() == reassembler.counter);
+    //     REQUIRE((payload.size() - exposed::TRANSFER_CRC_SIZE_BYTES) == out.payload_size);
+    //     for (std::size_t i = 0; i < payload.size(); i++)
+    //     {
+    //         INFO(i);
+    //         REQUIRE(payload[i] == static_cast<const std::uint8_t*>(out.payload)[i]);
+    //     }
+    // }
 
     // TODO: make all of these reordered constant first
 }
 
-TEST_CASE("rxInitTransferMetaDataFromModel")
-{
-    exposed::RxTransferModel model{
-
-    };
-}
-
-TEST_CASE("serardRxAccept")
-{
-    // TODO: test that invalid messages are discarded
-    // TODO: whitebox testing of RX state machine
-    // struct SerardMemoryResource allocator = {
-    //     .user_reference = nullptr,
-    //     .deallocate     = &serardFree,
-    //     .allocate       = &serardAlloc,
-    // };
-    // struct Serard serard = serardInit(allocator, allocator);
-    // serard.node_id       = 4321;
-    //
-    // SerardRxSubscription sub{};
-    // serardRxSubscribe(&serard, SerardTransferKindMessage, 1234, 0, 1000, &sub);
-    //
-    // std::array<std::uint8_t, 31> buffer = {0x00, 0x0d, 0x01, 0x06, 0xe1, 0x10, 0xd2, 0x04, 0xff, 0xc1, 0xba,
-    //                                        0xb0, 0xfe, 0xca, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x80,
-    //                                        0x01, 0x03, 0x6a, 0xc6, 0x01, 0x01, 0x01, 0x01, 0x00};
-    // SerardReassembler            reassembler{};
-    // size_t                       payload_size = buffer.size();
-    // SerardRxTransfer             out{};
-    // SerardRxSubscription*        out_sub = nullptr;
-    // const int8_t ret = serardRxAccept(&serard, &reassembler, 0, &payload_size, buffer.data(), &out, &out_sub);
-    // // TODO: make all of these reordered constant first
-    // REQUIRE(ret == 1);
-    // struct SerardTransferMetadata metadata = {
-    //     .priority       = SerardPriorityNominal,
-    //     .transfer_kind  = SerardTransferKindMessage,
-    //     .port_id        = 1234,
-    //     .remote_node_id = SERARD_NODE_ID_UNSET,
-    //     .transfer_id    = 0,
-    // };
-    //
-    // buffer_t    result_buffer;
-    // auto* const user_reference = reinterpret_cast<void*>(&result_buffer);
-    // serardTxPush(&serard, &metadata, 0, nullptr, user_reference, &serardEmitter);
-    // for (unsigned char& it : result_buffer)
-    // {
-    //     printf("%02x ", it);
-    // }
-    // printf("\n");
-    //
-    // struct SerardRxSubscription sub
-    // {};
-    // serardRxSubscribe(&serard, SerardTransferKindMessage, 1234, 0, 1000, &sub);
-    // struct SerardReassembler reassembler
-    // {};
-    // size_t payload_size = result_buffer.size();
-    // struct SerardRxTransfer out
-    // {};
-    // struct SerardRxSubscription* out_sub = nullptr;
-    // const int8_t ret = serardRxAccept(&serard, &reassembler, 0, &payload_size, result_buffer.data(), &out,
-    // &out_sub); printf("%d\n", ret); REQUIRE(ret == 1); REQUIRE(out_sub == &sub);
-}
+// struct SerardRxTransfer out
+// {};
+// struct SerardRxSubscription* out_sub = nullptr;
+// const int8_t ret = serardRxAccept(&serard, &reassembler, 0, &payload_size, result_buffer.data(), &out,
+// &out_sub); printf("%d\n", ret); REQUIRE(ret == 1); REQUIRE(out_sub == &sub);

@@ -38,6 +38,5 @@ Checks: >-
   -cert-msc50-cpp,
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*\.hpp'
-AnalyzeTemporaryDtors: false
 FormatStyle: file
 ...
