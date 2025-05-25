@@ -542,7 +542,7 @@ TEST_CASE("rxValidateHeader")
 
         struct SerardRxTransfer transfer = {};
         const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = transfer.metadata;
+        const auto&             metadata = reassembler.metadata;
         REQUIRE(out == 1);
         REQUIRE(metadata.transfer_id == 0);
         REQUIRE(metadata.transfer_kind == SerardTransferKindMessage);
@@ -567,7 +567,7 @@ TEST_CASE("rxValidateHeader")
 
         struct SerardRxTransfer transfer = {};
         const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = transfer.metadata;
+        const auto&             metadata = reassembler.metadata;
         REQUIRE(out == 1);
         REQUIRE(metadata.transfer_id == 0xCAFEB0BAUL);
         REQUIRE(metadata.transfer_kind == SerardTransferKindRequest);
@@ -590,7 +590,7 @@ TEST_CASE("rxValidateHeader")
 
         struct SerardRxTransfer transfer = {};
         const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = transfer.metadata;
+        const auto&             metadata = reassembler.metadata;
         REQUIRE(out == 0);
         REQUIRE(metadata.transfer_id == 0xCAFEB0BAUL);
         REQUIRE(metadata.transfer_kind == SerardTransferKindRequest);
@@ -614,7 +614,7 @@ TEST_CASE("rxValidateHeader")
 
         struct SerardRxTransfer transfer = {};
         const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = transfer.metadata;
+        const auto&             metadata = reassembler.metadata;
         REQUIRE(out == 0);
     }
 
@@ -631,7 +631,7 @@ TEST_CASE("rxValidateHeader")
 
         struct SerardRxTransfer transfer = {};
         const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = transfer.metadata;
+        const auto&             metadata = reassembler.metadata;
         REQUIRE(out == 0);
     }
 
@@ -650,7 +650,7 @@ TEST_CASE("rxValidateHeader")
 
         struct SerardRxTransfer transfer = {};
         const int8_t            out      = exposed::rxValidateHeader(&ins, &reassembler, &transfer);
-        const auto&             metadata = transfer.metadata;
+        const auto&             metadata = reassembler.metadata;
         REQUIRE(out == -SERARD_ERROR_MEMORY);
     }
 }

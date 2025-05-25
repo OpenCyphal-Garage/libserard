@@ -505,18 +505,15 @@ SERARD_PRIVATE bool rxTryParseHeader(const uint8_t* const                 payloa
 /// Returns <0 on error. The transfer shall be discarded and the error code returned to the user.
 /// Returns 0 if the header is invalid or not subscribed to. The transfer shall be silently discarded.
 /// Returns 1 if the header is valid and should be processed further.
-SERARD_PRIVATE int8_t rxValidateHeader(struct SerardRx* const          ins,
-                                       struct SerardReassembler* const reassembler,
-                                       struct SerardRxTransfer* const  out_transfer)
+SERARD_PRIVATE int8_t rxValidateHeader(struct SerardRx* const ins, struct SerardReassembler* const reassembler)
 {
     SERARD_ASSERT(ins != NULL);
     SERARD_ASSERT(reassembler != NULL);
-    SERARD_ASSERT(out_transfer != NULL);
     SERARD_ASSERT(reassembler->counter == (HEADER_SIZE - 1));
 
     int8_t ret = 0;
 
-    struct SerardTransferMetadata* const metadata            = &out_transfer->metadata;
+    struct SerardTransferMetadata* const metadata            = &reassembler->metadata;
     SerardNodeID                         destination_node_id = SERARD_NODE_ID_UNSET;
     if (rxTryParseHeader(reassembler->header, metadata, &destination_node_id))
     {
@@ -547,20 +544,19 @@ SERARD_PRIVATE int8_t rxValidateHeader(struct SerardRx* const          ins,
                 // even though it is not included in the final payload size.
                 const size_t extent = sub->extent + TRANSFER_CRC_SIZE_BYTES;
                 SERARD_ASSERT(extent > 0);
-                reassembler->max_payload_size = extent;
 
                 void* const payload = ins->memory_payload.allocate(ins->memory_payload.user_reference, extent);
                 if (payload != NULL)
                 {
-                    out_transfer->payload        = payload;
-                    out_transfer->payload_extent = extent;
-                    ret                          = 1;
+                    reassembler->payload        = payload;
+                    reassembler->payload_extent = extent;
+                    ret                         = 1;
                 }
                 else
                 {
-                    out_transfer->payload        = NULL;
-                    out_transfer->payload_extent = 0;
-                    ret                          = -SERARD_ERROR_MEMORY;
+                    reassembler->payload        = NULL;
+                    reassembler->payload_extent = 0;
+                    ret                         = -SERARD_ERROR_MEMORY;
                 }
             }
             else
@@ -624,8 +620,7 @@ SERARD_PRIVATE bool rxSessionUpdate(struct SerardRx* const                ins,
 // TODO: test this
 SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
                                        struct SerardReassembler* const reassembler,
-                                       struct SerardRxTransfer* const  transfer,
-                                       const uint8_t                   redundant_iface_index)
+                                       struct SerardRxTransfer* const  transfer)
 {
     SERARD_ASSERT(ins != NULL);
     SERARD_ASSERT(reassembler != NULL);
@@ -637,7 +632,7 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
     // FIXME: maybe we can just use the out_transfer->size to track the counter?
     const size_t payload_size = reassembler->counter - HEADER_SIZE;
     TransferCRC  payload_crc  = TRANSFER_CRC_INITIAL;
-    payload_crc               = transferCRCAdd(payload_crc, payload_size, transfer->payload);
+    payload_crc               = transferCRCAdd(payload_crc, payload_size, reassembler->payload);
     payload_crc               = payload_crc ^ TRANSFER_CRC_OUTPUT_XOR;
     bool valid                = payload_crc == TRANSFER_CRC_RESIDUE_AFTER_OUTPUT_XOR;
 
@@ -714,13 +709,33 @@ SERARD_PRIVATE int8_t rxAcceptByte(struct SerardRx* const          ins,
         {
             // if the state machine is accepting the payload, try to accept
             // the received transfer payload and return to the user
-            ret = rxAcceptTransfer(ins, reassembler, out_transfer, redundant_iface_index);
+            // FIXME: what is the redundant interface index for?
+            ret = rxAcceptTransfer(ins, reassembler, out_transfer);
+            if (ret == 1)
+            {
+                // copy the relevant metadata from the reassembler
+                // because the transfer is valid, the application takes ownership
+                // of the payload buffer.
+                memcpy(&out_transfer->metadata, &reassembler->metadata, sizeof(struct SerardTransferMetadata));
+                out_transfer->payload_extent = reassembler->payload_extent;
+                out_transfer->payload        = reassembler->payload;
+                out_transfer->timestamp_usec = reassembler->timestamp_usec;
+            }
         }
         else
         {
             // in other cases, the delimiter is premature so consider the transfer
             // to be invalid and silently discard it
             ret = 0;
+            if (reassembler->payload != NULL)
+            {
+                // deallocate the payload buffer if it was allocated
+                ins->memory_payload.deallocate(ins->memory_payload.user_reference,
+                                               reassembler->payload_extent,
+                                               reassembler->payload);
+                reassembler->payload        = NULL;
+                reassembler->payload_extent = 0;
+            }
         }
 
         // delimiter bytes unconditionally reset the state machine
@@ -732,7 +747,7 @@ SERARD_PRIVATE int8_t rxAcceptByte(struct SerardRx* const          ins,
         if (state_payload)
         {
             const size_t   offset  = reassembler->counter - HEADER_SIZE;
-            uint8_t* const payload = out_transfer->payload;
+            uint8_t* const payload = reassembler->payload;
             payload[offset]        = cobs_byte;
         }
         else
@@ -744,11 +759,11 @@ SERARD_PRIVATE int8_t rxAcceptByte(struct SerardRx* const          ins,
             {
                 // record the fragment timestamp when the first header byte is received
                 // see: https://github.com/OpenCyphal/pycyphal/issues/112
-                out_transfer->timestamp_usec = timestamp_usec;
+                reassembler->timestamp_usec = timestamp_usec;
             }
             else if (offset == (HEADER_SIZE - 1))
             {
-                const int8_t out = rxValidateHeader(ins, reassembler, out_transfer);
+                const int8_t out = rxValidateHeader(ins, reassembler);
                 if (out < 0)
                 {
                     // rx pipeline encountered error, reject transfer and propogate to user
@@ -804,13 +819,15 @@ struct SerardRx serardRxInit(const struct SerardMemoryResource memory_payload,
 struct SerardReassembler serardReassemblerInit(void)
 {
     struct SerardReassembler reassembler = {
-        .code             = BYTE_MAX,
-        .copy             = 0,
-        .counter          = 0,
-        .discard          = false,
-        .header           = {0},
-        .sub              = NULL,
-        .max_payload_size = 0,
+        .counter        = 0,
+        .discard        = false,
+        .code           = BYTE_MAX,
+        .copy           = 0,
+        .metadata       = {0},
+        .header         = {0},
+        .payload_extent = 0,
+        .payload        = NULL,
+        .sub            = NULL,
     };
 
     return reassembler;

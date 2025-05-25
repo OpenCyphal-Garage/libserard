@@ -270,16 +270,22 @@ enum SerardInternalRxState
 /// Ex https://github.com/Zubax/kocherga/blob/69e2131d3a26807428f67dc2f823afd988da1bc7/kocherga/kocherga_serial.hpp#L161
 struct SerardReassembler
 {
+    /// Reassembler state.
     size_t counter;
     bool   discard;
-    // enum SerardInternalRxState state;
 
+    /// COBS decoder state.
     uint8_t code;
     uint8_t copy;
-    uint8_t header[SERARD_TRANSFER_HEADER_SIZE];
+
+    /// Partially decoded transfer data.
+    struct SerardTransferMetadata metadata;
+    uint8_t                       header[SERARD_TRANSFER_HEADER_SIZE];  // TODO: can we avoid storing this?
+    size_t                        payload_extent;
+    uint8_t*                      payload;
 
     struct SerardRxSubscription* sub;
-    size_t                       max_payload_size;
+    SerardMicrosecond            timestamp_usec;  ///< The timestamp of the first received header byte of this transfer.
 };
 
 /// Construct a new library instance.
