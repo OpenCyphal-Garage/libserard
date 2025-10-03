@@ -626,29 +626,31 @@ SERARD_PRIVATE int8_t rxValidateHeader(struct SerardRx* const ins, struct Serard
 /// hand, while the wire compatibility is still guaranteed by the high-level requirements given in the specification.
 SERARD_PRIVATE bool rxSessionUpdate(struct SerardRx* const                ins,
                                     struct SerardInternalRxSession* const rxs,
-                                    const struct SerardRxTransfer* const  transfer,
+                                    const struct SerardReassembler* const reassembler,
                                     const SerardMicrosecond               transfer_id_timeout_usec)
 {
     SERARD_ASSERT(ins != NULL);
     SERARD_ASSERT(rxs != NULL);
-    SERARD_ASSERT(transfer != NULL);
+    SERARD_ASSERT(reassembler != NULL);
 
-    const struct SerardTransferMetadata* metadata = &transfer->metadata;
+    const struct SerardTransferMetadata* metadata = &reassembler->metadata;
 
     // Accept the transfer if the new transfer ID is greater than the previous.
     const bool tid_future = metadata->transfer_id > rxs->transfer_id;
 
     // Accept (and restart the session) on transfer ID timeout.
-    const bool tid_timed_out = (transfer->timestamp_usec > rxs->transfer_timestamp_usec) &&
-                               ((transfer->timestamp_usec - rxs->transfer_timestamp_usec) > transfer_id_timeout_usec);
+    const bool tid_timed_out =
+        (reassembler->timestamp_usec > rxs->transfer_timestamp_usec) &&
+        ((reassembler->timestamp_usec - rxs->transfer_timestamp_usec) > transfer_id_timeout_usec);
 
     // Accept if the transfer ID is at least TRANSFER_ID_DELTA counts less than
     // the previous one. This is used to hot-start the rx pipeline after a reboot.
     const bool wrap = !tid_future && ((rxs->transfer_id - metadata->transfer_id) >= TRANSFER_ID_DELTA);
 
-    if (tid_timed_out)
+    if (tid_future || tid_timed_out || wrap)
     {
-        rxs->transfer_id = metadata->transfer_id;
+        rxs->transfer_id             = metadata->transfer_id;
+        rxs->transfer_timestamp_usec = reassembler->timestamp_usec;
     }
 
     return tid_future || tid_timed_out || wrap;
@@ -663,7 +665,7 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
     SERARD_ASSERT(reassembler != NULL);
     SERARD_ASSERT(transfer != NULL);
 
-    const struct SerardTransferMetadata* const metadata     = &transfer->metadata;
+    const struct SerardTransferMetadata* const metadata     = &reassembler->metadata;
     const struct SerardRxSubscription* const   subscription = reassembler->sub;
 
     const size_t payload_size = reassembler->counter - HEADER_SIZE;
@@ -689,7 +691,7 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
                                                   sizeof(struct SerardInternalRxSession));
             if (rxs != NULL)
             {
-                rxs->transfer_timestamp_usec = transfer->timestamp_usec;
+                rxs->transfer_timestamp_usec = reassembler->timestamp_usec;
                 rxs->source_node_id          = metadata->remote_node_id;
                 rxs->transfer_id             = metadata->transfer_id;
                 struct SerardTreeNode* node  = cavl2_find_or_insert((struct SerardTreeNode**) &subscription->sessions,
@@ -708,7 +710,7 @@ SERARD_PRIVATE int8_t rxAcceptTransfer(struct SerardRx* const          ins,
         }
         else
         {
-            valid = valid && rxSessionUpdate(ins, rxs, transfer, subscription->transfer_id_timeout_usec);
+            valid = valid && rxSessionUpdate(ins, rxs, reassembler, subscription->transfer_id_timeout_usec);
             ret   = valid ? 1 : 0;
         }
     }
